@@ -1,8 +1,7 @@
 name: notes_vault
-description: Minimal skeleton to verify CI build (then we upgrade features)
+description: Notes app with grid, groups, share, export/import, private groups, numbering
 publish_to: "none"
-
-version: 1.0.0+1
+version: 1.0.0+2
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -10,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  shared_preferences: ^2.2.3
+  share_plus: ^10.0.2
 
 dev_dependencies:
   flutter_test:
