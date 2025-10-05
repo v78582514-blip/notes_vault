@@ -8,6 +8,7 @@ on:
 jobs:
   android:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,15 +24,33 @@ jobs:
         with:
           channel: stable
 
-      - name: Ensure our lib/main.dart exists
-        run: test -f lib/main.dart || (echo "lib/main.dart missing"; exit 1)
+      # 1) Если проекта ещё нет (нет android/), создаём каркас
+      - name: Create Flutter skeleton if missing
+        run: |
+          if [ ! -d "android" ]; then
+            flutter create --project-name notes_vault .
+          fi
 
-      - name: Flutter pub get
-        run: flutter pub get
+      # 2) Убедимся, что наш lib/main.dart есть (или берём из корня)
+      - name: Ensure lib/main.dart is in place
+        run: |
+          if [ ! -f lib/main.dart ] && [ -f main.dart ]; then
+            mkdir -p lib
+            cp -f main.dart lib/main.dart
+          fi
+          test -f lib/main.dart || (echo "lib/main.dart missing"; exit 1)
 
+      # 3) Зависимости под наш код
+      - name: Flutter pub get (+ensure deps)
+        run: |
+          flutter pub add shared_preferences share_plus || true
+          flutter pub get
+
+      # 4) Сборка APK
       - name: Build debug APK
         run: flutter build apk --debug
 
+      # 5) Публикация артефакта
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
