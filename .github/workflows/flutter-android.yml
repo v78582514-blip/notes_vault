@@ -24,7 +24,7 @@ jobs:
         with:
           channel: stable
 
-      # 1) Если нет pubspec.yaml — проект не создан. Создаём каркас.
+      # 1) Если нет pubspec.yaml — создаём полноценный проект (android/, gradle и т.д.)
       #    Если pubspec есть, но нет android/ — добавляем платформу Android.
       - name: Ensure Flutter skeleton exists
         run: |
@@ -34,26 +34,24 @@ jobs:
             flutter create --platforms=android .
           fi
 
-      # 2) Гарантируем, что наш main.dart лежит именно в lib/
+      # 2) Кладём main.dart в lib/ (если вдруг лежит в корне)
       - name: Place main.dart into lib
         run: |
           if [ -f main.dart ]; then
             mkdir -p lib
             cp -f main.dart lib/main.dart
           fi
-          test -f lib/main.dart || (echo "❌ lib/main.dart missing"; ls -la; exit 1)
+          test -f lib/main.dart || (echo "❌ lib/main.dart missing"; exit 1)
 
-      # 3) Устанавливаем нужные зависимости под наш код
-      - name: Flutter pub get (ensure deps)
-        run: |
-          flutter pub add shared_preferences share_plus || true
-          flutter pub get
+      # 3) Получаем зависимости
+      - name: Flutter pub get
+        run: flutter pub get
 
-      # 4) Сборка APK
+      # 4) Сборка APK (debug для удобной установки)
       - name: Build debug APK
         run: flutter build apk --debug
 
-      # 5) Публикуем результат
+      # 5) Публикуем артефакт
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
