@@ -1,5 +1,5 @@
 name: notes_vault
-description: Приложение заметок с цветами, группами и нумерацией
+description: Minimal skeleton to verify CI build (then we upgrade features)
 publish_to: "none"
 
 version: 1.0.0+1
@@ -10,8 +10,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  shared_preferences: ^2.2.3
-  share_plus: ^10.0.2
 
 dev_dependencies:
   flutter_test:
