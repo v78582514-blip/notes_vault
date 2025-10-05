@@ -9,8 +9,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  shared_preferences: ^2.2.3
-  share_plus: ^10.0.2
 
 dev_dependencies:
   flutter_test:
