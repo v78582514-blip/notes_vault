@@ -8,38 +8,52 @@ on:
 jobs:
   android:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      - uses: subosito/flutter-action@v2
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
         with:
           channel: stable
 
-      - name: Ensure Flutter project structure
+      # 1) Если нет pubspec.yaml — проект не создан. Создаём каркас.
+      #    Если pubspec есть, но нет android/ — добавляем платформу Android.
+      - name: Ensure Flutter skeleton exists
         run: |
           if [ ! -f pubspec.yaml ]; then
             flutter create --project-name notes_vault .
+          elif [ ! -d android ]; then
+            flutter create --platforms=android .
           fi
 
-      - name: Copy main.dart if in root
+      # 2) Гарантируем, что наш main.dart лежит именно в lib/
+      - name: Place main.dart into lib
         run: |
           if [ -f main.dart ]; then
             mkdir -p lib
             cp -f main.dart lib/main.dart
           fi
-          test -f lib/main.dart || (echo "❌ main.dart missing"; exit 1)
+          test -f lib/main.dart || (echo "❌ lib/main.dart missing"; ls -la; exit 1)
 
-      - name: Flutter pub get
-        run: flutter pub get
+      # 3) Устанавливаем нужные зависимости под наш код
+      - name: Flutter pub get (ensure deps)
+        run: |
+          flutter pub add shared_preferences share_plus || true
+          flutter pub get
 
+      # 4) Сборка APK
       - name: Build debug APK
         run: flutter build apk --debug
 
+      # 5) Публикуем результат
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
