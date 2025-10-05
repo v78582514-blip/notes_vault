@@ -24,16 +24,11 @@ jobs:
         with:
           channel: stable
 
-      - name: Flutter create project
-        run: flutter create --project-name notes_vault .
-
       - name: Ensure our lib/main.dart exists
         run: test -f lib/main.dart || (echo "lib/main.dart missing"; exit 1)
 
-      - name: Install dependencies
-        run: |
-          flutter pub add shared_preferences share_plus || true
-          flutter pub get
+      - name: Flutter pub get
+        run: flutter pub get
 
       - name: Build debug APK
         run: flutter build apk --debug
