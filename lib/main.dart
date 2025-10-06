@@ -514,4 +514,86 @@ String _hash(String text) {
   final bytes = utf8.encode(text);
   final digest = sha256.convert(bytes);
   return digest.toString();
-}
+/* ============================ GROUP TILE ============================ */
+class _GroupTile extends StatelessWidget {
+  final GroupItem group;
+  final VoidCallback onOpen;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final bool blurred;
+
+  const _GroupTile({
+    required this.group,
+    required this.onOpen,
+    required this.onEdit,
+    required this.onDelete,
+    required this.blurred,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = group.colorHex != null ? Color(group.colorHex!) : null;
+
+    Widget content = Card(
+      margin: const EdgeInsets.all(8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      color: color?.withOpacity(0.15),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              if (color != null)
+                Container(
+                  width: 14,
+                  height: 14,
+                  margin: const EdgeInsets.only(right: 10),
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              Expanded(
+                child: Text(
+                  group.title.isEmpty ? 'Без названия' : group.title,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+              ),
+              if (group.isPrivate)
+                const Icon(Icons.lock_outline, size: 20),
+              IconButton(
+                icon: const Icon(Icons.more_vert),
+                onPressed: onEdit,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (blurred) {
+      content = ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
+          children: [
+            content,
+            BackdropFilter(
+              filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: Container(
+                color: Colors.black.withOpacity(0.3),
+                child: const Center(
+                  child: Icon(Icons.lock_outline, size: 32, color: Colors.white70),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return content;
+  }
+}}
