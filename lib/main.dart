@@ -17,9 +17,9 @@ void main() {
 class Group {
   String id;
   String title;
-  int? colorHex;
+  int? colorHex; // ARGB int (0xFFRRGGBB)
   bool locked;
-  String? passwordHash; // для демо: plain-строка
+  String? passwordHash; // демо: обычная строка
 
   Group({
     required this.id,
@@ -69,7 +69,7 @@ class Note {
   String title;
   String text;
   String? groupId;
-  int? colorHex;
+  int? colorHex; // ARGB int
   int updatedAt;
 
   Note({
@@ -114,7 +114,7 @@ class Note {
       title: title ?? this.title,
       text: text ?? this.text,
       groupId: groupId ?? this.groupId,
-      colorHex: color?.value ?? colorHex,
+      colorHex: color == null ? colorHex : color.toARGB32(),
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
@@ -161,21 +161,30 @@ class VaultStore extends ChangeNotifier {
       final gWork = Group(
         id: 'g_work',
         title: 'Работа',
-        colorHex: const Color(0xFF1565C0).value,
+        colorHex: 0xFF1565C0,
       );
       final gLife = Group(
         id: 'g_life',
         title: 'Личное',
-        colorHex: const Color(0xFF2E7D32).value,
+        colorHex: 0xFF2E7D32,
       );
       final gSecret = Group(
         id: 'g_secret',
         title: 'Секреты',
-        colorHex: const Color(0xFF7B1FA2).value,
+        colorHex: 0xFF7B1FA2,
         locked: true,
         passwordHash: '1234', // демо-пароль
       );
       _groups.addAll([gWork, gLife, gSecret]);
+
+      const demoColors = <int>[
+        0xFFFFA000,
+        0xFF26A69A,
+        0xFFE91E63,
+        0xFF00BCD4,
+        0xFF8BC34A,
+        0xFF607D8B,
+      ];
 
       for (int i = 1; i <= 6; i++) {
         _notes.add(
@@ -184,14 +193,7 @@ class VaultStore extends ChangeNotifier {
             title: 'Заметка №$i',
             text: 'Это тестовая заметка номер $i.\nМожно её отредактировать.',
             groupId: i <= 3 ? null : gWork.id,
-            colorHex: const [
-              0xFFFFA000,
-              0xFF26A69A,
-              0xFFE91E63,
-              0xFF00BCD4,
-              0xFF8BC34A,
-              0xFF607D8B,
-            ][i - 1],
+            colorHex: demoColors[i - 1],
             updatedAt: DateTime.now().millisecondsSinceEpoch,
           ),
         );
@@ -215,7 +217,13 @@ class VaultStore extends ChangeNotifier {
     themeMode = mode;
     final p = await SharedPreferences.getInstance();
     await p.setString(
-        _kTheme, mode == ThemeMode.dark ? 'dark' : mode == ThemeMode.light ? 'light' : 'system');
+      _kTheme,
+      mode == ThemeMode.dark
+          ? 'dark'
+          : mode == ThemeMode.light
+              ? 'light'
+              : 'system',
+    );
     notifyListeners();
   }
 
@@ -328,7 +336,6 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
   }
 }
 
-/// ====== Часть 2 начнётся отсюда: экран NotesHome и UI ======
 /// =======================
 /// ГЛАВНЫЙ ЭКРАН
 /// =======================
@@ -351,7 +358,6 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    // выбрать «без группы» при старте
     _currentGroupId = null;
   }
 
@@ -411,7 +417,6 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const Spacer(),
-                        // Фильтр «все/без группы» быстрым тапом по папке «все»
                         IconButton(
                           tooltip: 'Показать без группы',
                           onPressed: () => setState(() => _currentGroupId = null),
@@ -578,9 +583,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
               color: scheme.error.withValues(alpha: .15),
               borderRadius: BorderRadius.circular(44),
               border: Border.all(color: scheme.error, width: 2),
-              boxShadow: const [
-                BoxShadow(blurRadius: 16, spreadRadius: 2),
-              ],
+              boxShadow: const [BoxShadow(blurRadius: 16, spreadRadius: 2)],
             ),
             child: Icon(Icons.delete, color: scheme.error, size: 34),
           ),
@@ -628,12 +631,12 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
         break;
 
       case 'Удалить':
-        final ok = await _askConfirm(
+        final yes = await _askConfirm(
           context,
           title: 'Удалить группу?',
           message: 'Все заметки в группе будут удалены.',
         );
-        if (ok) {
+        if (yes) {
           if (_currentGroupId == g.id) _currentGroupId = null;
           await store.deleteGroup(g.id);
         }
@@ -671,7 +674,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
     if (ok) await store.deleteNote(n.id);
   }
 
-  /// ========= Вспомогательные модалки (реализация в Части 3) =========
+  /// ========= Вспомогательные модалки (реализация в Части 2) =========
 
   Future<bool> _askConfirm(BuildContext context,
       {required String title, required String message}) async {
@@ -718,7 +721,16 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
   }
 }
 
-/// Плитка группы (с цветной рамкой, опциональным блюром и замком)
+/// Вспомогательное форматирование времени
+String _fmtTime(int ms) {
+  final d = DateTime.fromMillisecondsSinceEpoch(ms);
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${two(d.hour)}:${two(d.minute)}  ${two(d.day)}.${two(d.month)}.${d.year}';
+}
+/// =======================
+/// КАРТОЧКИ / ТАЙЛЫ
+/// =======================
+
 class _GroupTile extends StatelessWidget {
   const _GroupTile({
     required this.group,
@@ -739,7 +751,7 @@ class _GroupTile extends StatelessWidget {
       width: selected ? 3 : 2,
     );
 
-    final tile = Container(
+    final base = Container(
       width: 180,
       height: 110,
       decoration: BoxDecoration(
@@ -766,23 +778,29 @@ class _GroupTile extends StatelessWidget {
           if (group.locked)
             Align(
               alignment: Alignment.centerRight,
-              child: Icon(Icons.lock, color: color, size: 28),
+              child: Icon(Icons.lock, color: color, size: 26),
             ),
         ],
       ),
     );
 
-    if (!blurred) return tile;
+    if (!blurred) return base;
 
+    // Блюрим + лёгкий затеняющий слой. Добавим «пиратский» знак для приватных.
     return ClipRRect(
       borderRadius: BorderRadius.circular(22),
       child: Stack(
         children: [
-          tile,
+          base,
           Positioned.fill(
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
               child: Container(color: Colors.black.withValues(alpha: .2)),
+            ),
+          ),
+          const Positioned.fill(
+            child: Center(
+              child: Icon(Icons.hide_source, size: 40, color: Colors.white70),
             ),
           ),
         ],
@@ -791,7 +809,6 @@ class _GroupTile extends StatelessWidget {
   }
 }
 
-/// Карточка заметки
 class _NoteCard extends StatelessWidget {
   const _NoteCard({
     required this.note,
@@ -870,7 +887,6 @@ class _NoteCard extends StatelessWidget {
   }
 }
 
-/// Призрачная карточка (во время перетаскивания)
 class _NoteGhostCard extends StatelessWidget {
   const _NoteGhostCard({this.color});
   final Color? color;
@@ -895,16 +911,10 @@ class _NoteGhostCard extends StatelessWidget {
   }
 }
 
-String _fmtTime(int ms) {
-  final d = DateTime.fromMillisecondsSinceEpoch(ms);
-  final two = (int v) => v.toString().padLeft(2, '0');
-  return '${two(d.hour)}:${two(d.minute)}  ${two(d.day)}.${two(d.month)}.${d.year}';
-}
 /// =======================
-/// ДИАЛОГИ / РЕДАКТОРЫ / PICKERS
+/// ДИАЛОГИ
 /// =======================
 
-/// Подтверждение действия
 class _ConfirmDialog extends StatelessWidget {
   const _ConfirmDialog({required this.title, required this.message});
   final String title;
@@ -929,7 +939,6 @@ class _ConfirmDialog extends StatelessWidget {
   }
 }
 
-/// Ввод пароля (проверка при открытии приватной группы)
 class _PasswordAskDialog extends StatefulWidget {
   const _PasswordAskDialog({required this.groupTitle});
   final String groupTitle;
@@ -971,7 +980,6 @@ class _PasswordAskDialogState extends State<_PasswordAskDialog> {
   }
 }
 
-/// Установка/смена пароля (возвращает новый пароль или null)
 class _PasswordEditorDialog extends StatefulWidget {
   const _PasswordEditorDialog();
 
@@ -1039,7 +1047,6 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
   }
 }
 
-/// Редактор группы: название + цвет (приватность меняем из меню группы)
 class _GroupEditorDialog extends StatefulWidget {
   const _GroupEditorDialog({this.group});
   final Group? group;
@@ -1090,7 +1097,7 @@ class _GroupEditorDialogState extends State<_GroupEditorDialog> {
             final g = Group(
               id: id,
               title: _title.text.trim().isEmpty ? 'Без названия' : _title.text.trim(),
-              colorHex: _color?.value,
+              colorHex: _color?.toARGB32(),
               locked: widget.group?.locked ?? false,
               passwordHash: widget.group?.passwordHash,
             );
@@ -1103,7 +1110,6 @@ class _GroupEditorDialogState extends State<_GroupEditorDialog> {
   }
 }
 
-/// Редактор заметки: заголовок, текст, цвет; локальная нумерация
 class _NoteEditorDialog extends StatefulWidget {
   const _NoteEditorDialog({this.note, this.defaultGroupId});
   final Note? note;
@@ -1141,10 +1147,10 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
       final sel = v.selection;
       final cursor = sel.isValid ? sel.start : text.length;
 
-      // найдём начало текущей строки
+      // начало/конец текущей строки
       final lineStart = text.lastIndexOf('\n', cursor - 1) + 1;
-      final lineEndNewline = text.indexOf('\n', cursor);
-      final lineEnd = lineEndNewline == -1 ? text.length : lineEndNewline;
+      final lineEndN = text.indexOf('\n', cursor);
+      final lineEnd = lineEndN == -1 ? text.length : lineEndN;
       final line = text.substring(lineStart, lineEnd);
 
       if (line.trim().isEmpty) {
@@ -1228,7 +1234,7 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
               title: _title.text.trim(),
               text: _body.text,
               groupId: _groupId,
-              colorHex: _color?.value,
+              colorHex: _color?.toARGB32(),
               updatedAt: DateTime.now().millisecondsSinceEpoch,
             );
             Navigator.pop(context, note);
@@ -1240,7 +1246,10 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
   }
 }
 
-/// Диалог выбора цвета (с живым предпросмотром)
+/// =======================
+/// ВЫБОР ЦВЕТА
+/// =======================
+
 class _ColorDialog extends StatefulWidget {
   const _ColorDialog({this.initial});
   final Color? initial;
@@ -1280,7 +1289,6 @@ class _ColorDialogState extends State<_ColorDialog> {
   }
 }
 
-/// Палитра с мгновенным применением и чётким выделением выбора
 class _ColorPicker extends StatelessWidget {
   const _ColorPicker({required this.value, required this.onChanged});
   final Color? value;
@@ -1316,7 +1324,7 @@ class _ColorPicker extends StatelessWidget {
         for (final c in _palette)
           _ColorDot(
             color: c,
-            selected: value?.value == c.value,
+            selected: value?.toARGB32() == c.toARGB32(),
             onTap: () => onChanged(c),
           ),
       ],
@@ -1375,13 +1383,15 @@ class _NumberingFormatter extends TextInputFormatter {
 
   @override
   TextEditingValue formatEditUpdate(
-      TextEditingValue oldValue, TextEditingValue newValue) {
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
     if (!enabled()) return newValue;
 
     final oldText = oldValue.text;
     final newText = newValue.text;
 
-    // 1) На Enter добавляем "<n>. "
+    // ENTER → добавить "<n>. "
     final enteredNewLine = newText.length > oldText.length && newText.endsWith('\n');
     if (enteredNewLine) {
       final cursor = newValue.selection.end;
@@ -1405,8 +1415,7 @@ class _NumberingFormatter extends TextInputFormatter {
       );
     }
 
-    // 2) Не блокируем удаление: если строка — только "n. ", и пользователь жмёт Backspace —
-    // убираем префикс целиком, чтобы удаление продолжалось естественно.
+    // Удаление префикса "n. " одним бэкспейсом
     final removed = oldText.length > newText.length;
     if (removed) {
       final cur = newValue.selection.end;
@@ -1415,7 +1424,6 @@ class _NumberingFormatter extends TextInputFormatter {
       final line = newText.substring(start, end == -1 ? newText.length : end);
 
       if (RegExp(r'^\s*\d+\.\s?$').hasMatch(line)) {
-        // удалим до пустой строки
         final prefix = RegExp(r'^\s*\d+\.\s?').firstMatch(line)!.group(0)!;
         final updated = newText.replaceRange(start, start + prefix.length, '');
         final shift = prefix.length;
