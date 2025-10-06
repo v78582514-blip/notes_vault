@@ -22,7 +22,7 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-        cardTheme: const CardTheme(margin: EdgeInsets.all(8)),
+        cardTheme: const CardThemeData(margin: EdgeInsets.all(8)), // ← фикс
       ),
       darkTheme: ThemeData.dark(useMaterial3: true).copyWith(
         colorScheme: ColorScheme.fromSeed(
@@ -242,7 +242,7 @@ class _NoteEditorState extends State<NoteEditor> {
           now.text.length == old.text.length + 1 &&
           now.selection.baseOffset == old.selection.baseOffset + 1;
 
-      // Нажат Enter → добавить следующий номер
+      // Enter → следующий номер
       if (inserted && now.text.substring(0, caret).endsWith('\n')) {
         final before = now.text.substring(0, caret);
         final lines = before.split('\n');
@@ -262,7 +262,7 @@ class _NoteEditorState extends State<NoteEditor> {
         return;
       }
 
-      // Если пустая строка без префикса — подставим "1. "
+      // Пустая строка → "1. "
       final start = now.text.lastIndexOf('\n', caret - 1) + 1;
       final end = now.text.indexOf('\n', caret);
       final e = end == -1 ? now.text.length : end;
