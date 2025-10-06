@@ -538,8 +538,8 @@ return GridView.builder(
   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
   crossAxisCount: cols,
   mainAxisSpacing: 12,
-  crossAxisSpacing: 14, // ← чуть больше, чтобы не упирались
-  childAspectRatio: 1.38, // ← чуть шире карточка по соотношению
+  crossAxisSpacing: 14, // оставляем чуть больше зазор
+  childAspectRatio: 1.32, // возвращаем ближе к 1.3
 ),
       itemCount: notes.length,
       itemBuilder: (context, i) {
