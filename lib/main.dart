@@ -838,7 +838,7 @@ class _NoteCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(14),
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(12), // было 14
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -850,38 +850,60 @@ class _NoteCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
+
+              // Заголовок
               Text(
                 note.title.isEmpty ? 'Без заголовка' : note.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.titleMedium,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontSize: 15), // чуть меньше
               ),
-              const SizedBox(height: 6),
-              Expanded(
+
+              const SizedBox(height: 4),
+
+              // Текст заметки
+              Flexible(
                 child: Text(
                   note.text,
-                  maxLines: 5,
+                  maxLines: 4, // было 5
                   overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(fontSize: 14),
                 ),
               ),
-              const SizedBox(height: 8),
+
+              const SizedBox(height: 4),
+
+              // Низ карточки
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Icon(Icons.access_time, size: 16, color: scheme.outline),
                   const SizedBox(width: 6),
-                  Text(
-                    _fmtTime(note.updatedAt),
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelMedium
-                        ?.copyWith(color: scheme.outline),
+                  Flexible(
+                    child: Text(
+                      _fmtTime(note.updatedAt),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelMedium
+                          ?.copyWith(color: scheme.outline),
+                    ),
                   ),
                   const Spacer(),
                   IconButton(
                     tooltip: 'Удалить',
                     onPressed: onDelete,
                     icon: const Icon(Icons.delete_outline),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
                   ),
                 ],
               ),
