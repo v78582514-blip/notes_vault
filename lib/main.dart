@@ -308,41 +308,40 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
   }
 
   @override
-Wi@override
-Widget build(BuildContext context) {
-  // Тема: НЕ выставляем ThemeData.brightness, чтобы не конфликтовать с colorScheme
-  final light = ThemeData(
-    useMaterial3: true,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xFF3F51B5),
-      brightness: Brightness.light,
-    ),
-    cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
-  );
+  Widget build(BuildContext context) {
+    // Тема: НЕ выставляем ThemeData.brightness, чтобы не конфликтовать с colorScheme
+    final light = ThemeData(
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFF3F51B5),
+        brightness: Brightness.light,
+      ),
+      cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
+    );
 
-  final dark = ThemeData(
-    useMaterial3: true,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xFF7986CB),
-      brightness: Brightness.dark,
-    ),
-    cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
-  );
+    final dark = ThemeData(
+      useMaterial3: true,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFF7986CB),
+        brightness: Brightness.dark,
+      ),
+      cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
+    );
 
-  // Оборачиваем в AnimatedBuilder, чтобы реагировать на изменения store (тема и т.п.)
-  return AnimatedBuilder(
-    animation: store, // ваш ChangeNotifier из NotesStore
-    builder: (context, _) => MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Notes Vault',
-      theme: light,
-      darkTheme: dark,
-      themeMode: store.themeMode,
-      home: NotesHome(store: store),
-    ),
-  );
+    // Оборачиваем в AnimatedBuilder, чтобы реагировать на изменения store (тема и т.п.)
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Notes Vault',
+        theme: light,
+        darkTheme: dark,
+        themeMode: store.themeMode,
+        home: NotesHome(store: store),
+      ),
+    );
+  }
 }
-
 /// =======================
 /// ГЛАВНЫЙ ЭКРАН
 /// =======================
