@@ -528,6 +528,7 @@ class _GroupTile extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.blurred,
+    super.key,
   });
 
   @override
@@ -559,7 +560,9 @@ class _GroupTile extends StatelessWidget {
                 child: Text(
                   group.title.isEmpty ? 'Без названия' : group.title,
                   style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w600),
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               if (group.isPrivate)
@@ -584,8 +587,11 @@ class _GroupTile extends StatelessWidget {
               filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
               child: Container(
                 color: Colors.black.withOpacity(0.3),
-                child: const Center(
-                  child: Icon(Icons.lock_outline, size: 32, color: Colors.white70),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.lock_outline,
+                  size: 36,
+                  color: Colors.white70,
                 ),
               ),
             ),
