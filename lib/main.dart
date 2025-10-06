@@ -526,15 +526,21 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
 
   /// Сетка заметок; каждая карточка — Draggable<String> с note.id
   Widget _notesGrid(BuildContext context, List<Note> notes) {
-    final cols = MediaQuery.of(context).size.width ~/ 320 + 2;
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-  crossAxisCount: cols.clamp(1, 3),
-  mainAxisSpacing: 10,
-  crossAxisSpacing: 10,
-  childAspectRatio: 1.25,
-),
+    final size = MediaQuery.of(context).size;
+final isPortrait =
+    MediaQuery.of(context).orientation == Orientation.portrait;
+
+// 2 колонки на телефонах/портрете, 3 — на широких
+final cols = (size.width < 700 || isPortrait) ? 2 : 3;
+
+return GridView.builder(
+  padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
+  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+    crossAxisCount: cols,
+    mainAxisSpacing: 12,
+    crossAxisSpacing: 12,
+    childAspectRatio: 1.35, // чуть шире карточки
+  ),
       itemCount: notes.length,
       itemBuilder: (context, i) {
         final n = notes[i];
