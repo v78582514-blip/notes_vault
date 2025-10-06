@@ -6,12 +6,12 @@ import 'package:crypto/crypto.dart' as crypto;
 
 /* ===================== ENTRY ===================== */
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const NotesVaultApp());
 }
 
-/* ===================== APP ===================== */
+/* ===================== APP (theme persistence) ===================== */
 
 class NotesVaultApp extends StatefulWidget {
   const NotesVaultApp({super.key});
@@ -20,7 +20,27 @@ class NotesVaultApp extends StatefulWidget {
 }
 
 class _NotesVaultAppState extends State<NotesVaultApp> {
+  static const _kThemeDark = 'notes_vault_theme_dark';
   ThemeMode _mode = ThemeMode.light;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTheme();
+  }
+
+  Future<void> _loadTheme() async {
+    final sp = await SharedPreferences.getInstance();
+    final dark = sp.getBool(_kThemeDark) ?? false;
+    setState(() => _mode = dark ? ThemeMode.dark : ThemeMode.light);
+  }
+
+  Future<void> _toggleTheme() async {
+    final next = _mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+    setState(() => _mode = next);
+    final sp = await SharedPreferences.getInstance();
+    await sp.setBool(_kThemeDark, next == ThemeMode.dark);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,8 +60,7 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
       ),
       home: NotesHome(
         isDark: _mode == ThemeMode.dark,
-        onToggleTheme: () =>
-            setState(() => _mode = _mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark),
+        onToggleTheme: _toggleTheme,
       ),
     );
   }
@@ -133,7 +152,7 @@ class NotesStore extends ChangeNotifier {
   final List<Group> _groups = [];
   bool _loaded = false;
 
-  // приватные группы, уже разблокированные до перезапуска
+  // Приватные группы, разблокированные до перезапуска
   final Set<String> _unlocked = {};
 
   List<Note> get notes => List.unmodifiable(_notes);
@@ -261,6 +280,19 @@ class NotesStore extends ChangeNotifier {
 
 /* ===================== HOME ===================== */
 
+// типы для перетаскивания
+abstract class _DragData {}
+
+class _DragNote extends _DragData {
+  final String noteId;
+  _DragNote(this.noteId);
+}
+
+class _DragGroup extends _DragData {
+  final String groupId;
+  _DragGroup(this.groupId);
+}
+
 class NotesHome extends StatefulWidget {
   final bool isDark;
   final VoidCallback onToggleTheme;
@@ -300,19 +332,32 @@ class _NotesHomeState extends State<NotesHome> {
     if (res != null) await store.updateNote(res);
   }
 
-  Future<void> _confirmDelete(String noteId) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Удалить заметку?'),
-        content: const Text('Действие нельзя отменить.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Удалить')),
-        ],
-      ),
-    );
-    if (ok == true) await store.removeNote(noteId);
+  Future<bool> _confirm(String title, String body) async {
+    return (await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: Text(title),
+            content: Text(body),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Удалить')),
+            ],
+          ),
+        )) ??
+        false;
+  }
+
+  Future<void> _confirmDeleteNote(String noteId) async {
+    if (await _confirm('Удалить заметку?', 'Действие нельзя отменить.')) {
+      await store.removeNote(noteId);
+    }
+  }
+
+  Future<void> _confirmDeleteGroup(String groupId) async {
+    if (await _confirm('Удалить группу?', 'Заметки останутся в корне.')) {
+      await store.deleteGroup(groupId);
+      if (_currentGroupId == groupId) setState(() => _currentGroupId = null);
+    }
   }
 
   Future<String> _ensureGroupForTwo(Note a, Note b) async {
@@ -383,18 +428,8 @@ class _NotesHomeState extends State<NotesHome> {
                     }
                   }
                 } else if (v == 'clearpas') {
-                  final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      title: const Text('Снять пароль?'),
-                      content: const Text('Группа станет публичной.'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
-                        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Снять')),
-                      ],
-                    ),
-                  );
-                  if (ok == true) {
+                  final ok = await _confirm('Снять пароль?', 'Группа станет публичной.');
+                  if (ok) {
                     await store.clearGroupPassword(gid);
                     if (mounted) {
                       ScaffoldMessenger.of(context)
@@ -402,21 +437,7 @@ class _NotesHomeState extends State<NotesHome> {
                     }
                   }
                 } else if (v == 'delete') {
-                  final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      title: const Text('Удалить группу?'),
-                      content: const Text('Заметки останутся в корне.'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
-                        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Удалить')),
-                      ],
-                    ),
-                  );
-                  if (ok == true) {
-                    await store.deleteGroup(gid);
-                    setState(() => _currentGroupId = null);
-                  }
+                  await _confirmDeleteGroup(gid);
                 }
               },
               itemBuilder: (_) {
@@ -467,7 +488,7 @@ class _NotesHomeState extends State<NotesHome> {
                           final g = groupsToShow[i];
                           final count = allNotes.where((n) => n.groupId == g.id).length;
                           final locked = g.isPrivate && !store.isUnlocked(g.id);
-                          return DragTarget<_DragData>(
+                          return DragTarget<_DragNote>(
                             onWillAccept: (d) {
                               setState(() => _hoverGroupId = g.id);
                               return d != null;
@@ -477,39 +498,46 @@ class _NotesHomeState extends State<NotesHome> {
                               setState(() => _hoverGroupId = null);
                               await store.moveNoteToGroup(d.noteId, g.id);
                             },
-                            builder: (context, candidate, rejected) => InkWell(
-                              onTap: () => _openGroup(g),
-                              child: Card(
-                                shape: RoundedRectangleBorder(
-                                  side: BorderSide(
-                                    color: _hoverGroupId == g.id
-                                        ? Theme.of(context).colorScheme.primary
-                                        : Colors.transparent,
+                            builder: (context, candidate, rejected) => LongPressDraggable<_DragData>(
+                              data: _DragGroup(g.id),
+                              feedback: _GroupFeedback(title: g.title),
+                              onDragStarted: () => setState(() { _dragging = true; _overTrash = false; }),
+                              onDragEnd: (_) => setState(() { _dragging = false; _overTrash = false; }),
+                              childWhenDragging: _GhostCard(),
+                              child: InkWell(
+                                onTap: () => _openGroup(g),
+                                child: Card(
+                                  shape: RoundedRectangleBorder(
+                                    side: BorderSide(
+                                      color: _hoverGroupId == g.id
+                                          ? Theme.of(context).colorScheme.primary
+                                          : Colors.transparent,
+                                    ),
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(g.title,
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                    fontSize: 16, fontWeight: FontWeight.w600)),
-                                          ),
-                                          if (g.isPrivate)
-                                            Icon(locked ? Icons.lock : Icons.lock_open, size: 18),
-                                        ],
-                                      ),
-                                      const Spacer(),
-                                      Text('Заметок: $count',
-                                          style: Theme.of(context).textTheme.bodySmall),
-                                    ],
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(g.title,
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                      fontSize: 16, fontWeight: FontWeight.w600)),
+                                            ),
+                                            if (g.isPrivate)
+                                              Icon(locked ? Icons.lock : Icons.lock_open, size: 18),
+                                          ],
+                                        ),
+                                        const Spacer(),
+                                        Text('Заметок: $count',
+                                            style: Theme.of(context).textTheme.bodySmall),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
@@ -537,13 +565,13 @@ class _NotesHomeState extends State<NotesHome> {
                     delegate: SliverChildBuilderDelegate(
                       (context, i) {
                         final n = notesToShow[i];
-                        return LongPressDraggable<_DragData>(
-                          data: _DragData(noteId: n.id),
+                        return LongPressDraggable<_DragNote>(
+                          data: _DragNote(n.id),
                           feedback: _NoteFeedback(text: _firstLine(n.text)),
                           onDragStarted: () => setState(() { _dragging = true; _overTrash = false; }),
                           onDragEnd: (_) => setState(() { _dragging = false; _overTrash = false; }),
                           childWhenDragging: _GhostCard(),
-                          child: DragTarget<_DragData>(
+                          child: DragTarget<_DragNote>(
                             onWillAccept: (d) {
                               setState(() => _hoverNoteId = n.id);
                               return d != null && d.noteId != n.id;
@@ -565,7 +593,7 @@ class _NotesHomeState extends State<NotesHome> {
                               inGroupScreen: _currentGroupId != null,
                               highlighted: _hoverNoteId == n.id,
                               onTap: () => _edit(n),
-                              onDeleteTap: () async => _confirmDelete(n.id),
+                              onDeleteTap: () async => _confirmDeleteNote(n.id),
                               onUnGroupTap: _currentGroupId == null
                                   ? null
                                   : () async => store.moveNoteToGroup(n.id, null),
@@ -582,7 +610,7 @@ class _NotesHomeState extends State<NotesHome> {
               ],
             ),
 
-          // КРУГ-УРНА В ЛЕВОМ ВЕРХНЕМ УГЛУ
+          // КРУГ-УРНА: принимает и заметки, и группы
           if (_dragging)
             Positioned(
               top: 16,
@@ -592,7 +620,11 @@ class _NotesHomeState extends State<NotesHome> {
                 onLeave: (_) => setState(() => _overTrash = false),
                 onAccept: (d) async {
                   setState(() => _overTrash = false);
-                  await _confirmDelete(d.noteId);
+                  if (d is _DragNote) {
+                    await _confirmDeleteNote(d.noteId);
+                  } else if (d is _DragGroup) {
+                    await _confirmDeleteGroup(d.groupId);
+                  }
                 },
                 builder: (context, candidate, rejected) {
                   final color = _overTrash
@@ -627,11 +659,6 @@ class _NotesHomeState extends State<NotesHome> {
 
 /* ===================== WIDGETS ===================== */
 
-class _DragData {
-  final String noteId;
-  _DragData({required this.noteId});
-}
-
 class _NoteFeedback extends StatelessWidget {
   final String text;
   const _NoteFeedback({required this.text});
@@ -649,6 +676,31 @@ class _NoteFeedback extends StatelessWidget {
           border: Border.all(color: Theme.of(context).colorScheme.primary),
         ),
         child: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis),
+      ),
+    );
+  }
+}
+
+class _GroupFeedback extends StatelessWidget {
+  final String title;
+  const _GroupFeedback({required this.title});
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 6,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Theme.of(context).colorScheme.primary),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.folder, size: 18),
+          const SizedBox(width: 8),
+          Text(title, overflow: TextOverflow.ellipsis),
+        ]),
       ),
     );
   }
@@ -727,7 +779,7 @@ class _NoteCard extends StatelessWidget {
   }
 }
 
-/* ===================== EDITOR ===================== */
+/* ===================== EDITOR (better numbering) ===================== */
 
 class NoteEditor extends StatefulWidget {
   final Note? note;
@@ -771,19 +823,30 @@ class _NoteEditorState extends State<NoteEditor> {
     _last = _c.value;
   }
 
+  // гарантируем префикс "N. " в текущей строке, если включена нумерация
+  void _ensurePrefixAtCaret({int? forcedIndex}) {
+    if (!_numbered) return;
+    final now = _c.value;
+    final caret = forcedIndex ?? (now.selection.baseOffset < 0 ? now.text.length : now.selection.baseOffset);
+    final lineStart = now.text.lastIndexOf('\n', caret - 1) + 1;
+    final line = now.text.substring(lineStart);
+    if (RegExp(r'^\d+\. ').hasMatch(line)) return;
+
+    // номер = число непустых строк до текущей + 1
+    final before = now.text.substring(0, lineStart);
+    int count = 0;
+    for (final l in before.split('\n')) {
+      final stripped = l.replaceFirst(RegExp(r'^\d+\. '), '');
+      if (stripped.trim().isNotEmpty) count++;
+    }
+    final insert = '${count + 1}. ';
+    final t = now.text.replaceRange(lineStart, lineStart, insert);
+    _setValue(t, caret + insert.length);
+  }
+
   void _toggleNumbering() {
     setState(() => _numbered = !_numbered);
-    if (_numbered) {
-      final now = _c.value;
-      final caret = now.selection.baseOffset < 0 ? now.text.length : now.selection.baseOffset;
-      final lineStart = now.text.lastIndexOf('\n', caret - 1) + 1;
-      final line = now.text.substring(lineStart);
-      final hasPrefix = RegExp(r'^\d+\. ').hasMatch(line);
-      if (!hasPrefix) {
-        final t = now.text.replaceRange(lineStart, lineStart, '1. ');
-        _setValue(t, caret + 3);
-      }
-    }
+    if (_numbered) _ensurePrefixAtCaret();
   }
 
   void _onChanged() {
@@ -799,36 +862,38 @@ class _NoteEditorState extends State<NoteEditor> {
     final wasDelete = now.text.length + 1 == old.text.length &&
         now.selection.baseOffset + 1 == old.selection.baseOffset;
 
-    if (!_numbered) {
-      _last = now;
-      return;
-    }
-
-    // Enter -> следующий номер
-    if (wasInsert && caret > 0 && now.text[caret - 1] == '\n') {
-      final before = now.text.substring(0, caret);
-      final lines = before.split('\n');
-      int count = 0;
-      for (final l in lines) {
-        final stripped = l.replaceFirst(RegExp(r'^\d+\. '), '');
-        if (stripped.trim().isNotEmpty) count++;
+    if (_numbered) {
+      // если начали печатать на пустой первой строке без префикса — добавим "1. "
+      if (wasInsert && caret > 0 && now.text[caret - 1] != '\n') {
+        _ensurePrefixAtCaret(forcedIndex: caret);
       }
-      final insert = '${count + 1}. ';
-      _setValue(now.text.replaceRange(caret, caret, insert), caret + insert.length);
-      return;
-    }
 
-    // Backspace у начала нумерованной строки -> убрать "N. "
-    if (wasDelete && caret >= 0) {
-      final lineStart = now.text.lastIndexOf('\n', caret - 1) + 1;
-      final line = now.text.substring(lineStart);
-      final m = RegExp(r'^(\d+\. )').firstMatch(line);
-      if (m != null && caret <= lineStart + m.group(1)!.length) {
-        final start = lineStart;
-        final end = lineStart + m.group(1)!.length;
-        final t = now.text.replaceRange(start, end, '');
-        _setValue(t, start);
+      // Enter -> следующий номер
+      if (wasInsert && caret > 0 && now.text[caret - 1] == '\n') {
+        final before = now.text.substring(0, caret);
+        final lines = before.split('\n');
+        int count = 0;
+        for (final l in lines) {
+          final stripped = l.replaceFirst(RegExp(r'^\d+\. '), '');
+          if (stripped.trim().isNotEmpty) count++;
+        }
+        final insert = '${count + 1}. ';
+        _setValue(now.text.replaceRange(caret, caret, insert), caret + insert.length);
         return;
+      }
+
+      // Backspace у начала нумерованной строки -> убрать "N. "
+      if (wasDelete && caret >= 0) {
+        final lineStart = now.text.lastIndexOf('\n', caret - 1) + 1;
+        final line = now.text.substring(lineStart);
+        final m = RegExp(r'^(\d+\. )').firstMatch(line);
+        if (m != null && caret <= lineStart + m.group(1)!.length) {
+          final start = lineStart;
+          final end = lineStart + m.group(1)!.length;
+          final t = now.text.replaceRange(start, end, '');
+          _setValue(t, start);
+          return;
+        }
       }
     }
 
