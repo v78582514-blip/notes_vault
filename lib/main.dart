@@ -308,19 +308,34 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final light = ThemeData(
-      useMaterial3: true,
+Widget build(BuildContext context) {
+  final light = ThemeData(
+    useMaterial3: true,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: const Color(0xFF3F51B5),
       brightness: Brightness.light,
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3F51B5)),
-      cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
-    );
-    final dark = ThemeData(
-      useMaterial3: true,
+    ),
+    cardTheme: const CardTheme(margin: EdgeInsets.all(8)),
+  );
+
+  final dark = ThemeData(
+    useMaterial3: true,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: const Color(0xFF7986CB),
       brightness: Brightness.dark,
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF7986CB)),
-      cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
-    );
+    ),
+    cardTheme: const CardTheme(margin: EdgeInsets.all(8)),
+  );
+
+  return MaterialApp(
+    debugShowCheckedModeBanner: false,
+    title: 'Notes Vault',
+    theme: light,
+    darkTheme: dark,
+    themeMode: store.themeMode,
+    home: NotesHome(store: store),
+  );
+}
 
     return AnimatedBuilder(
       animation: store,
