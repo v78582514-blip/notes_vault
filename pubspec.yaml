@@ -12,22 +12,24 @@ dependencies:
     sdk: flutter
 
   # Хранение настроек/данных
-  shared_preferences: "^2.2.3"
+  shared_preferences: ^2.2.3
 
   # Для хеширования пароля (SHA-256)
-  crypto: "^3.0.3"
+  crypto: ^3.0.3
 
-  # Иконки (стандартный пакет Flutter)
-  cupertino_icons: "^1.0.8"
+  # Иконки
+  cupertino_icons: ^1.0.8
+
+  # Для обмена заметками
+  share_plus: ^9.0.0
+
+  # Для сохранения временных файлов (Markdown/HTML)
+  path_provider: ^2.1.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: "^5.0.0"
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true
-
-dependencies:
-  share_plus: ^9.0.0
-  path_provider: ^2.1.3
