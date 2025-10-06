@@ -1440,4 +1440,40 @@ class _NumberingFormatter extends TextInputFormatter {
       int nextNum = 1;
       if (lines.length >= 2) {
         final prev = lines[lines.length - 2];
-        final m = RegExp(r'^
+        // ВАЖНО: строка должна быть ОДНОЙ строкой, без переносов!
+        final m = RegExp(r'^\s*(\d+)\.\s').firstMatch(prev);
+        if (m != null) {
+          nextNum = int.tryParse(m.group(1) ?? '0')! + 1;
+        }
+      }
+
+      final insert = '$nextNum. ';
+      final updated = newText.replaceRange(cursor, cursor, insert);
+      return newValue.copyWith(
+        text: updated,
+        selection: TextSelection.collapsed(offset: cursor + insert.length),
+      );
+    }
+
+    // Удаление префикса "n. " одним бэкспейсом
+    final removed = oldText.length > newText.length;
+    if (removed) {
+      final cur = newValue.selection.end;
+      final start = newText.lastIndexOf('\n', cur - 1) + 1;
+      final end = newText.indexOf('\n', start);
+      final line = newText.substring(start, end == -1 ? newText.length : end);
+
+      if (RegExp(r'^\s*\d+\.\s?$').hasMatch(line)) {
+        final prefix = RegExp(r'^\s*\d+\.\s?').firstMatch(line)!.group(0)!;
+        final updated = newText.replaceRange(start, start + prefix.length, '');
+        final shift = prefix.length;
+        return newValue.copyWith(
+          text: updated,
+          selection: TextSelection.collapsed(offset: cur - shift),
+        );
+      }
+    }
+
+    return newValue;
+  }
+}
