@@ -299,11 +299,13 @@ class NotesStore extends ChangeNotifier {
   }
 }
 
-/* ===================== HOME ===================== */
+/* ===================== DRAG TYPES ===================== */
 
 abstract class _DragData {}
 class _DragNote extends _DragData { final String noteId; _DragNote(this.noteId); }
 class _DragGroup extends _DragData { final String groupId; _DragGroup(this.groupId); }
+
+/* ===================== HOME ===================== */
 
 class NotesHome extends StatefulWidget {
   final bool isDark;
@@ -428,7 +430,7 @@ class _NotesHomeState extends State<NotesHome> {
   Future<void> _groupMenu(Group g) async {
     final value = await showMenu<String>(
       context: context,
-      position: const RelativeRect.fromLTRB(0, 0, 0, 0),
+      position: const RelativeRect.fromLTRB(0, 80, 0, 0),
       items: [
         const PopupMenuItem(value: 'open', child: Text('Открыть')),
         const PopupMenuItem(value: 'rename', child: Text('Переименовать')),
@@ -552,7 +554,7 @@ class _NotesHomeState extends State<NotesHome> {
                             },
                             builder: (context, candidate, rejected) => LongPressDraggable<_DragData>(
                               data: _DragGroup(g.id),
-                              feedback: _GroupFeedback(title: g.title, color: color),
+                              feedback: _GroupChipFeedback(title: g.title, color: color),
                               onDragStarted: () => setState(() { _dragging = true; _overTrash = false; }),
                               onDragEnd: (_) => setState(() { _dragging = false; _overTrash = false; }),
                               childWhenDragging: const _GhostCard(),
@@ -584,7 +586,6 @@ class _NotesHomeState extends State<NotesHome> {
                                           ),
                                         ),
                                       ),
-                                    // Единственная кнопка меню в карточке (цветная точка не замещает меню)
                                     Positioned(
                                       top: 4,
                                       right: 4,
@@ -664,7 +665,7 @@ class _NotesHomeState extends State<NotesHome> {
                         final color = n.colorHex != null ? Color(n.colorHex!) : null;
                         return LongPressDraggable<_DragNote>(
                           data: _DragNote(n.id),
-                          feedback: _NoteFeedback(text: n.title.isNotEmpty ? n.title : _firstLine(n.text), color: color),
+                          feedback: _NoteChipFeedback(text: n.title.isNotEmpty ? n.title : _firstLine(n.text), color: color),
                           onDragStarted: () => setState(() { _dragging = true; _overTrash = false; }),
                           onDragEnd: (_) => setState(() { _dragging = false; _overTrash = false; }),
                           childWhenDragging: const _GhostCard(),
@@ -753,14 +754,19 @@ class _NotesHomeState extends State<NotesHome> {
       ),
     );
   }
+
+  Future<void> _confirmDeleteNote(String id) async {
+    final ok = await _confirm('Удалить заметку?', 'Действие нельзя отменить.');
+    if (ok) await store.removeNote(id);
+  }
 }
 
 /* ===================== WIDGETS ===================== */
 
-class _NoteFeedback extends StatelessWidget {
+class _NoteChipFeedback extends StatelessWidget {
   final String text;
   final Color? color;
-  const _NoteFeedback({required this.text, this.color});
+  const _NoteChipFeedback({required this.text, this.color});
   @override
   Widget build(BuildContext context) {
     return Material(
@@ -787,10 +793,10 @@ class _NoteFeedback extends StatelessWidget {
   }
 }
 
-class _GroupFeedback extends StatelessWidget {
+class _GroupChipFeedback extends StatelessWidget {
   final String title;
   final Color? color;
-  const _GroupFeedback({required this.title, this.color});
+  const _GroupChipFeedback({required this.title, this.color});
   @override
   Widget build(BuildContext context) {
     return Material(
@@ -1305,44 +1311,4 @@ Future<bool?> _askUnlock(BuildContext context, Group g) {
       ],
     ),
   );
-}
-
-class _GroupFeedback extends StatelessWidget {
-  final String title;
-  final Color? color;
-  const _GroupFeedback({required this.title, this.color});
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      elevation: 6,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Theme.of(context).colorScheme.primary),
-        ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          if (color != null)
-            Container(width: 12, height: 12, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-          if (color != null) const SizedBox(width: 6),
-          const Icon(Icons.folder, size: 18),
-          const SizedBox(width: 8),
-          Text(title, overflow: TextOverflow.ellipsis),
-        ]),
-      ),
-    );
-  }
-}
-
-class _GhostCard extends StatelessWidget {
-  const _GhostCard();
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
-      child: const SizedBox.expand(),
-    );
-  }
 }
