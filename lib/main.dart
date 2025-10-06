@@ -122,7 +122,11 @@ class Note {
 
 /// Вспомогательное расширение для сохранения цвета
 extension _ColorToArgb on Color {
-  int toARGB32() => (a << 24) | (r << 16) | (g << 8) | b;
+  int toARGB32() =>
+      ((a * 255).toInt() << 24) |
+      ((r * 255).toInt() << 16) |
+      ((g * 255).toInt() << 8) |
+      (b * 255).toInt();
 }
 
 /// =======================
