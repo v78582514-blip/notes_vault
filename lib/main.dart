@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -186,7 +187,9 @@ class NotesStore extends ChangeNotifier {
   }
 
   Future<void> moveNoteToGroup(String noteId, String? groupId) async {
-    final n = _notes.firstWhere((e) => e.id == noteId, orElse: () => Note.newNote());
+    final idx = _notes.indexWhere((e) => e.id == noteId);
+    if (idx == -1) return;
+    final n = _notes[idx];
     n.groupId = groupId;
     n.updatedAt = DateTime.now().millisecondsSinceEpoch;
     await _save();
@@ -208,7 +211,7 @@ class NotesHome extends StatefulWidget {
 class _NotesHomeState extends State<NotesHome> {
   final store = NotesStore();
   String? _currentGroupId; // null = корень
-  String? _hoverNoteId;    // визуальная подсветка цели
+  String? _hoverNoteId;    // подсветка цели
   String? _hoverGroupId;
 
   @override
@@ -413,7 +416,6 @@ class _NotesHomeState extends State<NotesHome> {
                             return LongPressDraggable<_DragData>(
                               data: _DragData(noteId: n.id),
                               feedback: _NoteFeedback(text: _firstLine(n.text)),
-                              dragAnchorStrategy: childDragAnchorStrategy,
                               childWhenDragging: _GhostCard(),
                               child: DragTarget<_DragData>(
                                 onWillAccept: (d) {
@@ -561,4 +563,172 @@ class NoteEditor extends StatefulWidget {
   const NoteEditor({super.key, this.note, this.groupId});
 
   @override
-  
+  State<NoteEditor> createState() => _NoteEditorState();
+}
+
+class _NoteEditorState extends State<NoteEditor> {
+  late final TextEditingController _c;
+  bool _numbered = false;
+  TextEditingValue _last = const TextEditingValue();
+  bool _internal = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = TextEditingController(text: widget.note?.text ?? '');
+    _last = _c.value;
+    _c.addListener(_onChanged);
+  }
+
+  @override
+  void dispose() {
+    _c.removeListener(_onChanged);
+    _c.dispose();
+    super.dispose();
+  }
+
+  int _safeCaret(String t, int caret) =>
+      math.max(0, math.min(caret, t.length));
+
+  void _setValue(String t, int caret) {
+    _internal = true;
+    _c.value = TextEditingValue(
+      text: t,
+      selection: TextSelection.collapsed(offset: _safeCaret(t, caret)),
+    );
+    _internal = false;
+    _last = _c.value;
+  }
+
+  void _toggleNumbering() {
+    setState(() => _numbered = !_numbered);
+    if (_numbered && _c.text.trim().isEmpty) {
+      _setValue('1. ', 3);
+    }
+  }
+
+  void _onChanged() {
+    if (_internal) return;
+
+    final now = _c.value;
+    final old = _last;
+    final caret = now.selection.baseOffset;
+
+    final wasInsert = now.text.length == old.text.length + 1 &&
+        now.selection.baseOffset == old.selection.baseOffset + 1;
+
+    final wasDelete = now.text.length + 1 == old.text.length &&
+        now.selection.baseOffset + 1 == old.selection.baseOffset;
+
+    if (!_numbered) {
+      _last = now;
+      return;
+    }
+
+    // Enter → следующий номер
+    if (wasInsert && caret > 0 && now.text[caret - 1] == '\n') {
+      final before = now.text.substring(0, caret);
+      final lines = before.split('\n');
+      int count = 0;
+      for (final l in lines) {
+        final stripped = l.replaceFirst(RegExp(r'^\d+\. '), '');
+        if (stripped.trim().isNotEmpty) count++;
+      }
+      final insert = '${count + 1}. ';
+      _setValue(now.text.replaceRange(caret, caret, insert), caret + insert.length);
+      return;
+    }
+
+    // Backspace у начала нумерованной строки → удалить весь префикс "N. "
+    if (wasDelete && caret >= 0) {
+      final lineStart = now.text.lastIndexOf('\n', caret - 1) + 1;
+      final line = now.text.substring(lineStart);
+      final m = RegExp(r'^(\d+\. )').firstMatch(line);
+      if (m != null && caret <= lineStart + m.group(1)!.length) {
+        final start = lineStart;
+        final end = lineStart + m.group(1)!.length;
+        final t = now.text.replaceRange(start, end, '');
+        _setValue(t, start);
+        return;
+      }
+    }
+
+    _last = now;
+  }
+
+  void _save() {
+    final result = (widget.note ?? Note.newNote(groupId: widget.groupId))
+      ..text = _c.text.trimRight()
+      ..updatedAt = DateTime.now().millisecondsSinceEpoch;
+    Navigator.pop(context, result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isNew = widget.note == null;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(isNew ? 'Новая заметка' : 'Редактирование'),
+        actions: [
+          IconButton(
+            tooltip: 'Нумерация строк',
+            icon: Icon(_numbered ? Icons.format_list_numbered : Icons.list),
+            onPressed: _toggleNumbering,
+          ),
+          IconButton(
+            tooltip: 'Сохранить',
+            icon: const Icon(Icons.save),
+            onPressed: _save,
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: TextField(
+            controller: _c,
+            autofocus: true,
+            minLines: 10,
+            maxLines: null,
+            decoration: const InputDecoration(
+              hintText: 'Текст заметки…',
+              border: InputBorder.none,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/* =================== HELPERS =================== */
+
+Future<String?> _askText(BuildContext context, String title, {String? initial}) async {
+  final c = TextEditingController(text: initial ?? '');
+  return showDialog<String>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: Text(title),
+      content: TextField(
+        controller: c,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: 'Введите текст...'),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
+        FilledButton(onPressed: () => Navigator.pop(context, c.text), child: const Text('OK')),
+      ],
+    ),
+  );
+}
+
+String _firstLine(String t) {
+  final f = t.trim().split('\n').first.trim();
+  return f.isEmpty ? 'Заметка' : f;
+}
+
+String _fmt(int ms) {
+  final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+  String two(int n) => n.toString().padLeft(2, '0');
+  return 'Обновлено: ${two(dt.day)}.${two(dt.month)}.${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
+}
