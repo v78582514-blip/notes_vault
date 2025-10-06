@@ -1,19 +1,21 @@
 name: notes_vault
-description: A simple Flutter notes app
-publish_to: "none"
-
-version: 1.0.0+1
+description: A clean and simple notes app.
+publish_to: 'none'
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
+  share_plus: ^10.0.0
+  path_provider: ^2.1.1
+  json_annotation: ^4.9.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_lints: ^5.0.0
 
 flutter:
   uses-material-design: true
