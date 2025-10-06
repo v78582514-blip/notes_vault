@@ -1,29 +1,29 @@
 name: notes_vault
-description: A simple smart notes app
-publish_to: 'none' # не публикуем
+description: A simple notes app with grouping, numbering, privacy and drag&drop.
+publish_to: "none"
+
+version: 1.0.0+1
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
 
-  dependencies:
-  flutter:
-    sdk: flutter
-  shared_preferences: ^2.2.3
-  crypto: ^3.0.3
-
 dependencies:
   flutter:
     sdk: flutter
-  # вот это добавь ↓↓↓
-  shared_preferences: ^2.2.3
 
-  # остальные стандартные зависимости, если они есть
-  cupertino_icons: ^1.0.6
+  # Хранение настроек/данных
+  shared_preferences: "^2.2.3"
+
+  # Для хеширования пароля (SHA-256)
+  crypto: "^3.0.3"
+
+  # Иконки (стандартный пакет Flutter)
+  cupertino_icons: "^1.0.8"
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.1
+  flutter_lints: "^5.0.0"
 
 flutter:
   uses-material-design: true
