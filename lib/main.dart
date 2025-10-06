@@ -531,9 +531,9 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
   crossAxisCount: cols.clamp(1, 3),
-  mainAxisSpacing: 12,
-  crossAxisSpacing: 12,
-  childAspectRatio: 1.30,
+  mainAxisSpacing: 10,
+  crossAxisSpacing: 10,
+  childAspectRatio: 1.25,
 ),
       itemCount: notes.length,
       itemBuilder: (context, i) {
