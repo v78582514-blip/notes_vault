@@ -253,7 +253,7 @@ class NotesStore extends ChangeNotifier {
 
   Future<void> deleteGroup(String id) async {
     for (final n in _notes) {
-      if (n.groupId == id) n.groupId = null;
+      if (n.groupId == id) n.groupId = null; // заметки в корень
     }
     _groups.removeWhere((g) => g.id == id);
     _unlocked.remove(id);
@@ -361,7 +361,7 @@ class _NotesHomeState extends State<NotesHome> {
   }
 
   Future<void> _confirmDeleteGroup(String groupId) async {
-    if (await _confirm('Удалить группу?', 'Заметки останутся в корне.')) {
+    if (await _confirm('Удалить группу?', 'Заметки из неё будут перенесены в корень.')) {
       await store.deleteGroup(groupId);
       if (_currentGroupId == groupId) setState(() => _currentGroupId = null);
     }
@@ -397,6 +397,56 @@ class _NotesHomeState extends State<NotesHome> {
     return true;
   }
 
+  Future<void> _groupMenu(Group g) async {
+    await showMenu<String>(
+      context: context,
+      position: const RelativeRect.fromLTRB(0, 0, 0, 0),
+      items: [
+        const PopupMenuItem(value: 'open', child: Text('Открыть')),
+        const PopupMenuItem(value: 'rename', child: Text('Переименовать')),
+        const PopupMenuItem(value: 'color', child: Text('Цвет группы')),
+        if (g.passHash == null)
+          const PopupMenuItem(value: 'setpass', child: Text('Установить пароль'))
+        else ...const [
+          PopupMenuItem(value: 'setpass', child: Text('Сменить пароль')),
+          PopupMenuItem(value: 'clearpas', child: Text('Снять пароль')),
+        ],
+        const PopupMenuItem(value: 'delete', child: Text('Удалить')),
+      ],
+    ).then((v) async {
+      if (v == null) return;
+      if (v == 'open') {
+        await _openGroup(g);
+      } else if (v == 'rename') {
+        final t = await _askText(context, 'Название группы', initial: g.title);
+        if (t != null && t.trim().isNotEmpty) await store.renameGroup(g.id, t.trim());
+      } else if (v == 'color') {
+        final c = await _pickColor(context, initial: g.colorHex);
+        await store.setGroupColor(g.id, c);
+      } else if (v == 'setpass') {
+        final p = await _askPassword(context, forCreate: g.passHash == null);
+        if (p != null && p.password.isNotEmpty) {
+          await store.setGroupPassword(g.id, passHash: _hash(p.password), hint: p.hint);
+          if (mounted) {
+            ScaffoldMessenger.of(context)
+                .showSnackBar(const SnackBar(content: Text('Пароль установлен')));
+          }
+        }
+      } else if (v == 'clearpas') {
+        final ok = await _confirm('Снять пароль?', 'Группа станет публичной.');
+        if (ok) {
+          await store.clearGroupPassword(g.id);
+          if (mounted) {
+            ScaffoldMessenger.of(context)
+                .showSnackBar(const SnackBar(content: Text('Пароль снят')));
+          }
+        }
+      } else if (v == 'delete') {
+        await _confirmDeleteGroup(g.id);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final allGroups = store.groups;
@@ -417,54 +467,6 @@ class _NotesHomeState extends State<NotesHome> {
                 onPressed: () => setState(() => _currentGroupId = null),
               ),
         actions: [
-          if (_currentGroupId != null)
-            PopupMenuButton<String>(
-              onSelected: (v) async {
-                final gid = _currentGroupId!;
-                final g = allGroups.firstWhere((gg) => gg.id == gid);
-                if (v == 'rename') {
-                  final t = await _askText(context, 'Название группы', initial: g.title);
-                  if (t != null && t.trim().isNotEmpty) await store.renameGroup(gid, t.trim());
-                } else if (v == 'color') {
-                  final c = await _pickColor(context, initial: g.colorHex);
-                  await store.setGroupColor(gid, c);
-                } else if (v == 'setpass') {
-                  final p = await _askPassword(context, forCreate: g.passHash == null);
-                  if (p != null && p.password.isNotEmpty) {
-                    await store.setGroupPassword(gid, passHash: _hash(p.password), hint: p.hint);
-                    if (mounted) {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(const SnackBar(content: Text('Пароль установлен')));
-                    }
-                  }
-                } else if (v == 'clearpas') {
-                  final ok = await _confirm('Снять пароль?', 'Группа станет публичной.');
-                  if (ok) {
-                    await store.clearGroupPassword(gid);
-                    if (mounted) {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(const SnackBar(content: Text('Пароль снят')));
-                    }
-                  }
-                } else if (v == 'delete') {
-                  await _confirmDeleteGroup(gid);
-                }
-              },
-              itemBuilder: (_) {
-                final g = allGroups.firstWhere((gg) => gg.id == _currentGroupId);
-                return [
-                  const PopupMenuItem(value: 'rename', child: Text('Переименовать группу')),
-                  const PopupMenuItem(value: 'color', child: Text('Цвет группы')),
-                  if (g.passHash == null)
-                    const PopupMenuItem(value: 'setpass', child: Text('Установить пароль'))
-                  else ...const [
-                    PopupMenuItem(value: 'setpass', child: Text('Сменить пароль')),
-                    PopupMenuItem(value: 'clearpas', child: Text('Снять пароль')),
-                  ],
-                  const PopupMenuItem(value: 'delete', child: Text('Удалить группу')),
-                ];
-              },
-            ),
           IconButton(
             tooltip: 'Тема',
             icon: Icon(widget.isDark ? Icons.light_mode : Icons.dark_mode),
@@ -500,6 +502,7 @@ class _NotesHomeState extends State<NotesHome> {
                           final count = allNotes.where((n) => n.groupId == g.id).length;
                           final locked = g.isPrivate && !store.isUnlocked(g.id);
                           final color = g.colorHex != null ? Color(g.colorHex!) : null;
+
                           return DragTarget<_DragNote>(
                             onWillAccept: (d) {
                               setState(() => _hoverGroupId = g.id);
@@ -525,63 +528,76 @@ class _NotesHomeState extends State<NotesHome> {
                                   ),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
-                                child: Stack(children: [
-                                  if (color != null)
-                                    Positioned.fill(
-                                      left: 0,
-                                      right: null,
-                                      child: Container(
-                                        width: 6,
-                                        decoration: BoxDecoration(
-                                          color: color,
-                                          borderRadius: const BorderRadius.only(
-                                            topLeft: Radius.circular(12),
-                                            bottomLeft: Radius.circular(12),
+                                child: InkWell(
+                                  onTap: () => _openGroup(g), // ОТКРЫВАЕМ ГРУППУ ТАПОМ
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Stack(children: [
+                                    if (color != null)
+                                      Positioned.fill(
+                                        left: 0,
+                                        right: null,
+                                        child: Container(
+                                          width: 6,
+                                          decoration: BoxDecoration(
+                                            color: color,
+                                            borderRadius: const BorderRadius.only(
+                                              topLeft: Radius.circular(12),
+                                              bottomLeft: Radius.circular(12),
+                                            ),
                                           ),
                                         ),
                                       ),
+                                    Positioned(
+                                      top: 4,
+                                      right: 4,
+                                      child: IconButton(
+                                        tooltip: 'Настройки',
+                                        icon: const Icon(Icons.more_vert),
+                                        onPressed: () => _groupMenu(g),
+                                      ),
                                     ),
-                                  Padding(
-                                    padding: const EdgeInsets.all(12),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(g.title,
-                                                  maxLines: 2,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                      fontSize: 16, fontWeight: FontWeight.w600)),
-                                            ),
-                                            if (color != null)
-                                              Container(
-                                                width: 14,
-                                                height: 14,
-                                                margin: const EdgeInsets.only(left: 6),
-                                                decoration: BoxDecoration(
-                                                  color: color,
-                                                  shape: BoxShape.circle,
-                                                  border: Border.all(
-                                                    color: Theme.of(context).colorScheme.outlineVariant,
+                                    Padding(
+                                      padding: const EdgeInsets.all(12),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(g.title,
+                                                    maxLines: 2,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                        fontSize: 16, fontWeight: FontWeight.w600)),
+                                              ),
+                                              if (color != null)
+                                                Container(
+                                                  width: 14,
+                                                  height: 14,
+                                                  margin: const EdgeInsets.only(left: 6),
+                                                  decoration: BoxDecoration(
+                                                    color: color,
+                                                    shape: BoxShape.circle,
+                                                    border: Border.all(
+                                                      color: Theme.of(context).colorScheme.outlineVariant,
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
-                                            if (g.isPrivate)
-                                              Padding(
-                                                padding: const EdgeInsets.only(left: 6),
-                                                child: Icon(locked ? Icons.lock : Icons.lock_open, size: 18),
-                                              ),
-                                          ],
-                                        ),
-                                        const Spacer(),
-                                        Text('Заметок: $count',
-                                            style: Theme.of(context).textTheme.bodySmall),
-                                      ],
+                                              if (g.isPrivate)
+                                                Padding(
+                                                  padding: const EdgeInsets.only(left: 6),
+                                                  child: Icon(locked ? Icons.lock : Icons.lock_open, size: 18),
+                                                ),
+                                            ],
+                                          ),
+                                          const Spacer(),
+                                          Text('Заметок: $count',
+                                              style: Theme.of(context).textTheme.bodySmall),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ]),
+                                  ]),
+                                ),
                               ),
                             ),
                           );
