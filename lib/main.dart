@@ -1,7 +1,6 @@
-// lib/main.dart — PART 1/3
-
 import 'dart:convert';
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,13 +10,65 @@ void main() {
   runApp(const NotesVaultApp());
 }
 
-/// ======= MODELS =======
+/// =======================
+/// МОДЕЛИ ДАННЫХ
+/// =======================
+
+class Group {
+  String id;
+  String title;
+  int? colorHex;
+  bool locked;
+  String? passwordHash; // для демо: plain-строка
+
+  Group({
+    required this.id,
+    required this.title,
+    this.colorHex,
+    this.locked = false,
+    this.passwordHash,
+  });
+
+  Color? get color => colorHex == null ? null : Color(colorHex!);
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'colorHex': colorHex,
+        'locked': locked,
+        'passwordHash': passwordHash,
+      };
+
+  static Group fromJson(Map<String, dynamic> j) => Group(
+        id: j['id'],
+        title: j['title'],
+        colorHex: j['colorHex'],
+        locked: j['locked'] ?? false,
+        passwordHash: j['passwordHash'],
+      );
+
+  Group copyWith({
+    String? id,
+    String? title,
+    int? colorHex,
+    bool? locked,
+    String? passwordHash,
+  }) {
+    return Group(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      colorHex: colorHex ?? this.colorHex,
+      locked: locked ?? this.locked,
+      passwordHash: passwordHash ?? this.passwordHash,
+    );
+  }
+}
 
 class Note {
   String id;
   String title;
   String text;
-  String groupId; // '' = в корне
+  String? groupId;
   int? colorHex;
   int updatedAt;
 
@@ -25,19 +76,12 @@ class Note {
     required this.id,
     required this.title,
     required this.text,
-    required this.groupId,
+    this.groupId,
     this.colorHex,
     required this.updatedAt,
   });
 
-  factory Note.newNote({String groupId = ''}) => Note(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        title: '',
-        text: '',
-        groupId: groupId,
-        colorHex: null,
-        updatedAt: DateTime.now().millisecondsSinceEpoch,
-      );
+  Color? get color => colorHex == null ? null : Color(colorHex!);
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -52,226 +96,196 @@ class Note {
         id: j['id'],
         title: j['title'] ?? '',
         text: j['text'] ?? '',
-        groupId: j['groupId'] ?? '',
+        groupId: j['groupId'],
         colorHex: j['colorHex'],
-        updatedAt: j['updatedAt'] ?? 0,
+        updatedAt: j['updatedAt'] ?? DateTime.now().millisecondsSinceEpoch,
       );
+
+  Note copyWith({
+    String? id,
+    String? title,
+    String? text,
+    String? groupId,
+    Color? color,
+    int? updatedAt,
+  }) {
+    return Note(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      text: text ?? this.text,
+      groupId: groupId ?? this.groupId,
+      colorHex: color?.value ?? colorHex,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
 }
 
-class Group {
-  String id;
-  String title;
-  int? colorHex;
-  bool locked; // приватная
-  String? passwordHash; // для простоты: хранится как текст (демо)
-
-  Group({
-    required this.id,
-    required this.title,
-    this.colorHex,
-    this.locked = false,
-    this.passwordHash,
-  });
-
-  factory Group.newGroup() => Group(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        title: '',
-      );
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'colorHex': colorHex,
-        'locked': locked,
-        'passwordHash': passwordHash,
-      };
-
-  static Group fromJson(Map<String, dynamic> j) => Group(
-        id: j['id'],
-        title: j['title'] ?? '',
-        colorHex: j['colorHex'],
-        locked: j['locked'] ?? false,
-        passwordHash: j['passwordHash'],
-      );
-}
-
-/// ======= STORE (SharedPreferences) =======
+/// =======================
+/// ХРАНИЛИЩЕ (SharedPreferences)
+/// =======================
 
 class VaultStore extends ChangeNotifier {
-  static const _kData = 'notes_vault_v2';
-  static const _kTheme = 'notes_vault_theme';
+  static const _kGroups = 'groups_v1';
+  static const _kNotes = 'notes_v1';
+  static const _kTheme = 'theme_v1'; // 'light' | 'dark' | 'system'
 
   final List<Group> _groups = [];
   final List<Note> _notes = [];
-  bool _loaded = false;
-  bool get isLoaded => _loaded;
-
-  ThemeMode _themeMode = ThemeMode.system;
-  ThemeMode get themeMode => _themeMode;
+  ThemeMode themeMode = ThemeMode.system;
 
   List<Group> get groups => List.unmodifiable(_groups);
-  List<Note> get notes => List.unmodifiable(_notes);
+  List<Note> notesOf(String? groupId) =>
+      _notes.where((n) => n.groupId == groupId).toList()
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
-    final raw = p.getString(_kData);
-    if (raw != null) {
-      final map = jsonDecode(raw) as Map<String, dynamic>;
-      final g = (map['groups'] as List).cast<Map<String, dynamic>>();
-      final n = (map['notes'] as List).cast<Map<String, dynamic>>();
-      _groups
-        ..clear()
-        ..addAll(g.map(Group.fromJson));
-      _notes
-        ..clear()
-        ..addAll(n.map(Note.fromJson));
-    }
-    // Тема
+
+    // тема
     final t = p.getString(_kTheme);
-    if (t == 'dark') _themeMode = ThemeMode.dark;
-    if (t == 'light') _themeMode = ThemeMode.light;
+    if (t == 'dark') themeMode = ThemeMode.dark;
+    if (t == 'light') themeMode = ThemeMode.light;
 
-    // демоданные при первом запуске
+    // группы/заметки
+    final gRaw = p.getStringList(_kGroups) ?? [];
+    final nRaw = p.getStringList(_kNotes) ?? [];
+    _groups
+      ..clear()
+      ..addAll(gRaw.map((s) => Group.fromJson(jsonDecode(s))));
+    _notes
+      ..clear()
+      ..addAll(nRaw.map((s) => Note.fromJson(jsonDecode(s))));
+
+    // демо-данные при первом запуске
     if (_groups.isEmpty && _notes.isEmpty) {
-      final gWork = Group()
-        ..id = 'g_work'
-        ..title = 'Работа'
-        ..colorHex = const Color(0xFF1565C0).value;
-      final gLife = Group()
-        ..id = 'g_life'
-        ..title = 'Личное'
-        ..colorHex = const Color(0xFF2E7D32).value;
-      final gSecret = Group()
-        ..id = 'g_secret'
-        ..title = 'Секреты'
-        ..colorHex = const Color(0xFF7B1FA2).value
-        ..locked = true
-        ..passwordHash = '1234'; // демо-пароль
-
+      final gWork = Group(
+        id: 'g_work',
+        title: 'Работа',
+        colorHex: const Color(0xFF1565C0).value,
+      );
+      final gLife = Group(
+        id: 'g_life',
+        title: 'Личное',
+        colorHex: const Color(0xFF2E7D32).value,
+      );
+      final gSecret = Group(
+        id: 'g_secret',
+        title: 'Секреты',
+        colorHex: const Color(0xFF7B1FA2).value,
+        locked: true,
+        passwordHash: '1234', // демо-пароль
+      );
       _groups.addAll([gWork, gLife, gSecret]);
 
-      _notes.addAll([
-        Note.newNote(groupId: '').copyWithDemo(
-          title: 'Заметка №1',
-          text: 'Это тестовая заметка номер 1.\nМожно её отредактировать.',
-          color: const Color(0xFFFF8F00),
-        ),
-        Note.newNote(groupId: '').copyWithDemo(
-          title: 'Заметка №2',
-          text: 'Это тестовая заметка номер 2.\nМожно её отредактировать.',
-          color: const Color(0xFF00BFA5),
-        ),
-        Note.newNote(groupId: '').copyWithDemo(
-          title: 'Заметка №3',
-          text: 'Это тестовая заметка номер 3.\nМожно её отредактировать.',
-          color: const Color(0xFFE91E63),
-        ),
-        Note.newNote(groupId: 'g_work').copyWithDemo(
-          title: 'План спринта',
-          text: '1. Бэклог\n2. Оценки\n3. Демо',
-          color: const Color(0xFFFFA000),
-        ),
-        Note.newNote(groupId: 'g_life').copyWithDemo(
-          title: 'Покупки',
-          text: 'Молоко\nХлеб\nСыр',
-          color: const Color(0xFF9CCC65),
-        ),
-        Note.newNote(groupId: 'g_secret').copyWithDemo(
-          title: 'Пароли',
-          text: 'Очень приватно.',
-          color: const Color(0xFFAB47BC),
-        ),
-      ]);
-      await _save();
+      for (int i = 1; i <= 6; i++) {
+        _notes.add(
+          Note(
+            id: 'n$i',
+            title: 'Заметка №$i',
+            text: 'Это тестовая заметка номер $i.\nМожно её отредактировать.',
+            groupId: i <= 3 ? null : gWork.id,
+            colorHex: const [
+              0xFFFFA000,
+              0xFF26A69A,
+              0xFFE91E63,
+              0xFF00BCD4,
+              0xFF8BC34A,
+              0xFF607D8B,
+            ][i - 1],
+            updatedAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+      }
+
+      await _saveAll();
     }
 
-    _loaded = true;
     notifyListeners();
   }
 
-  Future<void> _save() async {
+  Future<void> _saveAll() async {
     final p = await SharedPreferences.getInstance();
-    final map = {
-      'groups': _groups.map((e) => e.toJson()).toList(),
-      'notes': _notes.map((e) => e.toJson()).toList(),
-    };
-    await p.setString(_kData, jsonEncode(map));
+    await p.setStringList(
+        _kGroups, _groups.map((g) => jsonEncode(g.toJson())).toList());
+    await p.setStringList(
+        _kNotes, _notes.map((n) => jsonEncode(n.toJson())).toList());
   }
 
-  Future<void> setThemeMode(ThemeMode mode) async {
-    _themeMode = mode;
+  Future<void> setTheme(ThemeMode mode) async {
+    themeMode = mode;
     final p = await SharedPreferences.getInstance();
-    await p.setString(_kTheme,
-        mode == ThemeMode.dark ? 'dark' : mode == ThemeMode.light ? 'light' : 'system');
+    await p.setString(
+        _kTheme, mode == ThemeMode.dark ? 'dark' : mode == ThemeMode.light ? 'light' : 'system');
     notifyListeners();
   }
 
-  // CRUD Groups
-  Future<void> addGroup(Group g) async {
-    _groups.add(g);
-    await _save();
-    notifyListeners();
-  }
-
-  Future<void> updateGroup(Group g) async {
+  // группы
+  Future<void> upsertGroup(Group g) async {
     final i = _groups.indexWhere((x) => x.id == g.id);
-    if (i != -1) _groups[i] = g;
-    await _save();
+    if (i >= 0) {
+      _groups[i] = g;
+    } else {
+      _groups.add(g);
+    }
+    await _saveAll();
     notifyListeners();
   }
 
-  Future<void> removeGroup(String groupId) async {
-    // При удалении — удаляем и её заметки
-    _notes.removeWhere((n) => n.groupId == groupId);
-    _groups.removeWhere((g) => g.id == groupId);
-    await _save();
+  Future<void> deleteGroup(String id) async {
+    // удаляем вместе с заметками
+    _notes.removeWhere((n) => n.groupId == id);
+    _groups.removeWhere((g) => g.id == id);
+    await _saveAll();
     notifyListeners();
   }
 
-  // CRUD Notes
-  Future<void> addNote(Note n) async {
-    _notes.add(n);
-    await _save();
-    notifyListeners();
-  }
-
-  Future<void> updateNote(Note n) async {
+  // заметки
+  Future<void> upsertNote(Note n) async {
     final i = _notes.indexWhere((x) => x.id == n.id);
-    if (i != -1) _notes[i] = n..updatedAt = nowMs();
-    await _save();
+    if (i >= 0) {
+      _notes[i] = n.copyWith(updatedAt: DateTime.now().millisecondsSinceEpoch);
+    } else {
+      _notes.add(
+        n.copyWith(updatedAt: DateTime.now().millisecondsSinceEpoch),
+      );
+    }
+    await _saveAll();
     notifyListeners();
   }
 
-  Future<void> removeNote(String id) async {
+  Future<void> deleteNote(String id) async {
     _notes.removeWhere((n) => n.id == id);
-    await _save();
+    await _saveAll();
     notifyListeners();
   }
 
-  Future<void> moveNoteToGroup(String noteId, String groupId) async {
-    final i = _notes.indexWhere((x) => x.id == noteId);
-    if (i != -1) {
-      _notes[i].groupId = groupId;
-      _notes[i].updatedAt = nowMs();
-      await _save();
+  Future<void> moveNoteToGroup(String noteId, String? groupId) async {
+    final i = _notes.indexWhere((n) => n.id == noteId);
+    if (i >= 0) {
+      _notes[i] = _notes[i].copyWith(
+        groupId: groupId,
+        updatedAt: DateTime.now().millisecondsSinceEpoch,
+      );
+      await _saveAll();
       notifyListeners();
     }
   }
 
-  Group? getGroup(String id) =>
-      id.isEmpty ? null : _groups.firstWhere((g) => g.id == id, orElse: () => Group.newGroup());
+  Group? groupById(String? id) =>
+      id == null ? null : _groups.firstWhere((g) => g.id == id);
 
-  // Приватность
-  static Future<bool> verifyPassword(Group g, String input) async {
-    // демо-проверка
-    return (g.passwordHash ?? '') == input;
+  Future<bool> verifyPassword(Group g, String input) async {
+    return (g.passwordHash ?? '').trim() == input.trim();
   }
 }
 
-/// ======= APP =======
+/// =======================
+/// ПРИЛОЖЕНИЕ + ТЕМА
+/// =======================
 
 class NotesVaultApp extends StatefulWidget {
   const NotesVaultApp({super.key});
+
   @override
   State<NotesVaultApp> createState() => _NotesVaultAppState();
 }
@@ -282,14 +296,7 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
   @override
   void initState() {
     super.initState();
-    store.addListener(() => setState(() {}));
     store.load();
-  }
-
-  @override
-  void dispose() {
-    store.dispose();
-    super.dispose();
   }
 
   @override
@@ -298,124 +305,159 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
       useMaterial3: true,
       brightness: Brightness.light,
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3F51B5)),
-      cardTheme: const CardTheme(margin: EdgeInsets.all(8)),
+      cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
     );
     final dark = ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF7986CB), brightness: Brightness.dark),
-      cardTheme: const CardTheme(margin: EdgeInsets.all(8)),
+      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF7986CB)),
+      cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
     );
 
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Notes Vault',
-      theme: light,
-      darkTheme: dark,
-      themeMode: store.themeMode,
-      home: NotesHome(store: store),
+    return AnimatedBuilder(
+      animation: store,
+      builder: (context, _) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Notes Vault',
+        theme: light,
+        darkTheme: dark,
+        themeMode: store.themeMode,
+        home: NotesHome(store: store),
+      ),
     );
   }
 }
 
-/// ======= HOME =======
+/// ====== Часть 2 начнётся отсюда: экран NotesHome и UI ======
+/// =======================
+/// ГЛАВНЫЙ ЭКРАН
+/// =======================
 
 class NotesHome extends StatefulWidget {
-  final VaultStore store;
   const NotesHome({super.key, required this.store});
+  final VaultStore store;
+
   @override
   State<NotesHome> createState() => _NotesHomeState();
 }
 
-class _NotesHomeState extends State<NotesHome> {
-  String _currentGroupId = ''; // какая группа выбрана сверху (для заголовка)
-  String? _dragNoteId; // id заметки, которую тянем
-  bool _showBin = false; // показать урну
+class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
+  String? _currentGroupId; // выбранная группа (null = «Все» / без группы)
+  String? _dragNoteId;     // id перетаскиваемой заметки
+  bool _dragging = false;  // показывать ли зону удаления
 
   VaultStore get store => widget.store;
 
   @override
+  void initState() {
+    super.initState();
+    // выбрать «без группы» при старте
+    _currentGroupId = null;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final gTop = store.groups;
-    final notesAll = store.notes;
+    return AnimatedBuilder(
+      animation: store,
+      builder: (_, __) {
+        final notes = store.notesOf(_currentGroupId);
+        final groups = store.groups;
 
-    // Раздел: заметки в выбранной (или во всех)
-    final visibleNotes = notesAll
-        .where((n) => _currentGroupId.isEmpty ? true : n.groupId == _currentGroupId)
-        .toList()
-      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-
-    final currentGroup = store.getGroup(_currentGroupId);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(currentGroup == null || _currentGroupId.isEmpty ? 'Notes Vault' : currentGroup.title),
-        actions: [
-          PopupMenuButton<String>(
-            tooltip: 'Тема',
-            icon: const Icon(Icons.color_lens),
-            onSelected: (v) {
-              if (v == 'light') store.setThemeMode(ThemeMode.light);
-              if (v == 'dark') store.setThemeMode(ThemeMode.dark);
-              if (v == 'system') store.setThemeMode(ThemeMode.system);
-            },
-            itemBuilder: (c) => const [
-              PopupMenuItem(value: 'light', child: Text('Светлая тема')),
-              PopupMenuItem(value: 'dark', child: Text('Тёмная тема')),
-              PopupMenuItem(value: 'system', child: Text('Системная')),
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+              _currentGroupId == null
+                  ? 'Все заметки'
+                  : (store.groupById(_currentGroupId!)?.title ?? 'Группа'),
+            ),
+            actions: [
+              IconButton(
+                tooltip: 'Сменить тему',
+                onPressed: () {
+                  final next = {
+                    ThemeMode.system: ThemeMode.dark,
+                    ThemeMode.dark: ThemeMode.light,
+                    ThemeMode.light: ThemeMode.system,
+                  }[store.themeMode]!;
+                  store.setTheme(next);
+                },
+                icon: Icon(
+                  switch (store.themeMode) {
+                    ThemeMode.dark => Icons.dark_mode,
+                    ThemeMode.light => Icons.light_mode,
+                    _ => Icons.brightness_auto,
+                  },
+                ),
+              ),
             ],
           ),
-        ],
-      ),
-      floatingActionButton: _fabColumn(context),
-      body: !store.isLoaded
-          ? const Center(child: CircularProgressIndicator())
-          : Stack(
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 8),
-                    _groupsStrip(context, gTop),
-                    const SizedBox(height: 8),
-                    Expanded(child: _notesGrid(context, visibleNotes)),
-                  ],
-                ),
-                if (_showBin) _deleteBinOverlay(context),
-              ],
-            ),
+
+          body: Stack(
+            children: [
+              Column(
+                children: [
+                  // Полоса групп сверху (горизонтальная) + таргеты для дропа
+                  _groupsStrip(context, groups),
+
+                  const SizedBox(height: 6),
+
+                  // Заголовок секции заметок
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Заметки',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const Spacer(),
+                        // Фильтр «все/без группы» быстрым тапом по папке «все»
+                        IconButton(
+                          tooltip: 'Показать без группы',
+                          onPressed: () => setState(() => _currentGroupId = null),
+                          icon: const Icon(Icons.folder_open),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Сетка заметок
+                  Expanded(
+                    child: _notesGrid(context, notes),
+                  ),
+                ],
+              ),
+
+              // Зона удаления (появляется, когда идет drag)
+              if (_dragging) _deleteDropZone(context),
+            ],
+          ),
+
+          floatingActionButton: _fabColumn(context),
+        );
+      },
     );
   }
 
-  /// FAB: добавить заметку / группу
+  /// Кнопки «добавить заметку / добавить группу»
   Widget _fabColumn(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        FloatingActionButton(
+        FloatingActionButton.small(
           heroTag: 'add_group',
+          tooltip: 'Добавить группу',
           onPressed: () async {
-            final created = await showDialog<Group>(
-              context: context,
-              builder: (_) => GroupEditorDialog(group: Group.newGroup()),
-            );
-            if (created != null) {
-              await store.addGroup(created);
-            }
+            await _editGroup(context);
           },
-          child: const Icon(Icons.folder),
+          child: const Icon(Icons.create_new_folder),
         ),
         const SizedBox(height: 12),
         FloatingActionButton(
           heroTag: 'add_note',
+          tooltip: 'Добавить заметку',
           onPressed: () async {
-            final note = await showDialog<Note>(
-              context: context,
-              builder: (_) => NoteEditorDialog(note: Note.newNote(groupId: _currentGroupId)),
-            );
-            if (note != null) {
-              await store.addNote(note);
-            }
+            await _editNote(context);
           },
           child: const Icon(Icons.add),
         ),
@@ -423,28 +465,7 @@ class _NotesHomeState extends State<NotesHome> {
     );
   }
 
-  // ====== продолжение ниже (часть 2/3) ======
-}
-
-extension on Note {
-  Note copyWithDemo({String? title, String? text, Color? color}) {
-    return Note(
-      id: id,
-      title: title ?? this.title,
-      text: text ?? this.text,
-      groupId: groupId,
-      colorHex: color?.value ?? colorHex,
-      updatedAt: updatedAt,
-    );
-  }
-}
-
-int nowMs() => DateTime.now().millisecondsSinceEpoch;
-```0
- // lib/main.dart — PART 2/3  (продолжение _NotesHomeState)
-
-extension _GroupsAndNotesUI on _NotesHomeState {
-  /// Горизонтальная лента групп (с DragTarget — можно бросать заметки)
+  /// Горизонтальный список групп (каждая — DragTarget<String>)
   Widget _groupsStrip(BuildContext context, List<Group> groups) {
     return SizedBox(
       height: 128,
@@ -455,40 +476,35 @@ extension _GroupsAndNotesUI on _NotesHomeState {
         itemCount: groups.length,
         itemBuilder: (c, i) {
           final g = groups[i];
+
           return DragTarget<String>(
-            onWillAccept: (data) => true,
-            onAccept: (noteId) async {
+            onWillAcceptWithDetails: (_) => true,
+            onAcceptWithDetails: (details) async {
               // если группа приватная — спросим пароль перед переносом
               if (g.locked) {
                 final ok = await _askPassword(g);
                 if (!ok) return;
               }
-              await store.moveNoteToGroup(noteId, g.id);
+              await store.moveNoteToGroup(details.data, g.id);
             },
-            builder: (context, candidate, rejected) {
-              final hovered = candidate.isNotEmpty;
-              return _GroupTile(
-                group: g,
-                highlighted: _currentGroupId == g.id || hovered,
-                onOpen: () async {
+            builder: (context, _, __) {
+              final color = g.color ?? Theme.of(context).colorScheme.primary;
+
+              return GestureDetector(
+                onTap: () async {
                   if (g.locked) {
                     final ok = await _askPassword(g);
                     if (!ok) return;
                   }
                   setState(() => _currentGroupId = g.id);
                 },
-                onEdit: () async {
-                  final updated = await showDialog<Group>(
-                    context: context,
-                    builder: (_) => GroupEditorDialog(group: g),
-                  );
-                  if (updated != null) await store.updateGroup(updated);
-                },
-                onDelete: () async {
-                  final yes = await _confirm(context,
-                      'Удалить группу «${g.title.isEmpty ? 'Без названия' : g.title}» и все её заметки?');
-                  if (yes) await store.removeGroup(g.id);
-                },
+                onLongPress: () => _groupMenu(context, g),
+                child: _GroupTile(
+                  group: g,
+                  color: color,
+                  selected: _currentGroupId == g.id,
+                  blurred: g.locked && _currentGroupId != g.id,
+                ),
               );
             },
           );
@@ -497,233 +513,203 @@ extension _GroupsAndNotesUI on _NotesHomeState {
     );
   }
 
-  /// Сетка заметок (LongPressDraggable + Dismissible-like удаление через урну)
+  /// Сетка заметок; каждая карточка — Draggable<String> с note.id
   Widget _notesGrid(BuildContext context, List<Note> notes) {
-    if (notes.isEmpty) {
-      return const Center(child: Text('Нет заметок'));
-    }
-    final cross = MediaQuery.of(context).size.width > 600 ? 3 : 2;
+    final cols = MediaQuery.of(context).size.width ~/ 320 + 2;
     return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 96),
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: cross,
-        crossAxisSpacing: 12,
+        crossAxisCount: cols.clamp(1, 3),
         mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
         childAspectRatio: 3 / 2,
       ),
       itemCount: notes.length,
-      itemBuilder: (c, i) {
+      itemBuilder: (context, i) {
         final n = notes[i];
+        final c = n.color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
+
         return LongPressDraggable<String>(
           data: n.id,
-          dragAnchorStrategy: pointerDragAnchorStrategy,
-          onDragStarted: () => setState(() {
+          dragAnchorStrategy: childDragAnchorStrategy,
+          onDragStarted: () {
             _dragNoteId = n.id;
-            _showBin = true;
-          }),
-          onDragEnd: (_) => setState(() {
+            setState(() => _dragging = true);
+          },
+          onDragEnd: (_) {
             _dragNoteId = null;
-            _showBin = false;
-          }),
-          feedback: _NoteCard(note: n, dragging: true),
-          childWhenDragging: Opacity(opacity: 0.3, child: _NoteCard(note: n)),
+            setState(() => _dragging = false);
+          },
+          feedback: _NoteGhostCard(color: c),
+          childWhenDragging: const _NoteGhostCard(),
           child: _NoteCard(
             note: n,
-            onTap: () async {
-              final edited = await showDialog<Note>(
-                context: context,
-                builder: (_) => NoteEditorDialog(note: n),
-              );
-              if (edited != null) await store.updateNote(edited);
-            },
-            onDelete: () async {
-              final yes = await _confirm(context, 'Удалить эту заметку?');
-              if (yes) await store.removeNote(n.id);
-            },
+            onTap: () => _editNote(context, n),
+            onDelete: () => _confirmDeleteNote(context, n),
           ),
         );
       },
     );
   }
 
-  /// Полупрозрачная «урна» по центру снизу — принимает бросаемую заметку
-  Widget _deleteBinOverlay(BuildContext context) {
+  /// Полупрозрачная зона удаления (по центру снизу)
+  Widget _deleteDropZone(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Align(
       alignment: Alignment.bottomCenter,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 24),
         child: DragTarget<String>(
-          onWillAccept: (id) => true,
-          onAccept: (id) async {
-            final yes = await _confirm(context, 'Удалить заметку?');
-            if (yes) await store.removeNote(id);
-          },
-          builder: (context, candidate, rejected) {
-            final active = candidate.isNotEmpty;
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              width: active ? 88 : 72,
-              height: active ? 88 : 72,
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(active ? 0.9 : 0.35),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  if (active)
-                    const BoxShadow(blurRadius: 16, spreadRadius: 2, color: Colors.black26),
-                ],
-                border: Border.all(color: Colors.white24),
-              ),
-              child: const Icon(Icons.delete, size: 36),
+          onWillAcceptWithDetails: (_) => true,
+          onAcceptWithDetails: (_) async {
+            final id = _dragNoteId;
+            if (id == null) return;
+            final ok = await _askConfirm(
+              context,
+              title: 'Удалить заметку?',
+              message: 'Действие невозможно отменить.',
             );
+            if (ok) await store.deleteNote(id);
           },
+          builder: (context, _, __) => Container(
+            width: 88,
+            height: 88,
+            decoration: BoxDecoration(
+              color: scheme.error.withValues(alpha: .15),
+              borderRadius: BorderRadius.circular(44),
+              border: Border.all(color: scheme.error, width: 2),
+              boxShadow: const [
+                BoxShadow(blurRadius: 16, spreadRadius: 2),
+              ],
+            ),
+            child: Icon(Icons.delete, color: scheme.error, size: 34),
+          ),
         ),
       ),
+    );
+  }
+
+  /// Меню группы (переименовать/цвет/приватность/удалить)
+  Future<void> _groupMenu(BuildContext context, Group g) async {
+    final action = await _choose(context, [
+      'Открыть',
+      if (!g.locked) 'Сделать приватной',
+      if (g.locked) 'Снять пароль',
+      'Переименовать/цвет',
+      'Удалить',
+    ]);
+    if (action == null) return;
+
+    switch (action) {
+      case 'Открыть':
+        if (g.locked) {
+          final ok = await _askPassword(g);
+          if (!ok) return;
+        }
+        setState(() => _currentGroupId = g.id);
+        break;
+
+      case 'Сделать приватной':
+        final pass = await _askNewPassword(context);
+        if (pass != null && pass.isNotEmpty) {
+          await store.upsertGroup(g.copyWith(locked: true, passwordHash: pass));
+        }
+        break;
+
+      case 'Снять пароль':
+        final ok = await _askPassword(g);
+        if (ok) {
+          await store.upsertGroup(g.copyWith(locked: false, passwordHash: null));
+        }
+        break;
+
+      case 'Переименовать/цвет':
+        await _editGroup(context, g);
+        break;
+
+      case 'Удалить':
+        final ok = await _askConfirm(
+          context,
+          title: 'Удалить группу?',
+          message: 'Все заметки в группе будут удалены.',
+        );
+        if (ok) {
+          if (_currentGroupId == g.id) _currentGroupId = null;
+          await store.deleteGroup(g.id);
+        }
+        break;
+    }
+  }
+
+  /// ========= Диалоги редактирования =========
+
+  Future<void> _editGroup(BuildContext context, [Group? original]) async {
+    final updated = await showDialog<Group>(
+      context: context,
+      builder: (_) => _GroupEditorDialog(group: original),
+    );
+    if (updated != null) await store.upsertGroup(updated);
+  }
+
+  Future<void> _editNote(BuildContext context, [Note? original]) async {
+    final updated = await showDialog<Note>(
+      context: context,
+      builder: (_) => _NoteEditorDialog(
+        note: original,
+        defaultGroupId: _currentGroupId,
+      ),
+    );
+    if (updated != null) await store.upsertNote(updated);
+  }
+
+  Future<void> _confirmDeleteNote(BuildContext context, Note n) async {
+    final ok = await _askConfirm(
+      context,
+      title: 'Удалить заметку?',
+      message: 'Действие невозможно отменить.',
+    );
+    if (ok) await store.deleteNote(n.id);
+  }
+
+  /// ========= Вспомогательные модалки (реализация в Части 3) =========
+
+  Future<bool> _askConfirm(BuildContext context,
+      {required String title, required String message}) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (_) => _ConfirmDialog(title: title, message: message),
+        ) ??
+        false;
+  }
+
+  Future<String?> _askNewPassword(BuildContext context) async {
+    return showDialog<String>(
+      context: context,
+      builder: (_) => const _PasswordEditorDialog(),
     );
   }
 
   Future<bool> _askPassword(Group g) async {
-    final ctrl = TextEditingController();
-    final ok = await showDialog<bool>(
+    final res = await showDialog<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Группа «${g.title.isEmpty ? 'Без названия' : g.title}» защищена'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: 'Пароль'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
-          FilledButton(
-            onPressed: () async {
-              final verified = await VaultStore.verifyPassword(g, ctrl.text);
-              Navigator.pop(context, verified);
-            },
-            child: const Text('ОК'),
-          ),
-        ],
-      ),
+      builder: (_) => _PasswordAskDialog(groupTitle: g.title),
     );
-    return ok ?? false;
+    if (res == null) return false;
+    return store.verifyPassword(g, res);
   }
 
-  Future<bool> _confirm(BuildContext context, String msg) async {
-    final r = await showDialog<bool>(
+  Future<String?> _choose(BuildContext context, List<String> options) async {
+    return showModalBottomSheet<String>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Подтверждение'),
-        content: Text(msg),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Удалить')),
-        ],
-      ),
-    );
-    return r ?? false;
-  }
-}
-
-/// Карточка группы в верхней ленте (с индикатором цвета и замком)
-class _GroupTile extends StatelessWidget {
-  final Group group;
-  final bool highlighted;
-  final VoidCallback onOpen;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-
-  const _GroupTile({
-    super.key,
-    required this.group,
-    required this.highlighted,
-    required this.onOpen,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = group.colorHex != null ? Color(group.colorHex!) : null;
-
-    return GestureDetector(
-      onTap: onOpen,
-      child: Container(
-        width: 180,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: (color ?? Theme.of(context).colorScheme.primary).withOpacity(highlighted ? 0.8 : 0.35),
-            width: highlighted ? 2.5 : 1.5,
-          ),
-          gradient: LinearGradient(
-            colors: [
-              (color ?? Theme.of(context).colorScheme.surfaceVariant).withOpacity(0.16),
-              (color ?? Theme.of(context).colorScheme.surfaceVariant).withOpacity(0.06),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          boxShadow: const [BoxShadow(blurRadius: 8, color: Colors.black26)],
-        ),
-        child: Stack(
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
           children: [
-            // Поле содержания
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    group.title.isEmpty ? 'Без названия' : group.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
-                  ),
-                  const Spacer(),
-                  Icon(
-                    group.locked ? Icons.lock : Icons.folder,
-                    size: 36,
-                    color: color ?? Theme.of(context).colorScheme.primary,
-                  ),
-                ],
-              ),
-            ),
-            // Кнопки меню (не перекрывать цвет/замок)
-            Positioned(
-              right: 4,
-              top: 4,
-              child: PopupMenuButton<String>(
-                tooltip: 'Меню группы',
-                onSelected: (v) async {
-                  if (v == 'open') onOpen();
-                  if (v == 'edit') onEdit();
-                  if (v == 'delete') onDelete();
-                },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(value: 'open', child: Text('Открыть')),
-                  const PopupMenuItem(value: 'edit', child: Text('Редактировать')),
-                  const PopupMenuItem(
-                    value: 'delete',
-                    child: Row(children: [Icon(Icons.delete_outline), SizedBox(width: 8), Text('Удалить')]),
-                  ),
-                ],
-              ),
-            ),
-
-            // Аккуратный индикатор цвета (в отдельной зоне, без пересечения с замком/меню)
-            if (color != null)
-              Positioned(
-                left: 10,
-                top: 10,
-                child: Container(
-                  width: 14,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    color: color,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 1),
-                  ),
-                ),
+            for (final o in options)
+              ListTile(
+                title: Text(o),
+                onTap: () => Navigator.pop(context, o),
               ),
           ],
         ),
@@ -732,49 +718,113 @@ class _GroupTile extends StatelessWidget {
   }
 }
 
-/// Карточка заметки
-class _NoteCard extends StatelessWidget {
-  final Note note;
-  final VoidCallback? onTap;
-  final VoidCallback? onDelete;
-  final bool dragging;
+/// Плитка группы (с цветной рамкой, опциональным блюром и замком)
+class _GroupTile extends StatelessWidget {
+  const _GroupTile({
+    required this.group,
+    required this.color,
+    required this.selected,
+    required this.blurred,
+  });
 
-  const _NoteCard({super.key, required this.note, this.onTap, this.onDelete, this.dragging = false});
+  final Group group;
+  final Color color;
+  final bool selected;
+  final bool blurred;
 
   @override
   Widget build(BuildContext context) {
-    final color = note.colorHex != null ? Color(note.colorHex!) : null;
-    final border = color ?? Theme.of(context).colorScheme.primary;
+    final border = Border.all(
+      color: selected ? color : color.withValues(alpha: .5),
+      width: selected ? 3 : 2,
+    );
 
-    return Material(
-      elevation: dragging ? 10 : 2,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: border.withOpacity(0.35), width: 1.4),
-            gradient: LinearGradient(
-              colors: [
-                (color ?? Theme.of(context).colorScheme.surfaceVariant).withOpacity(0.14),
-                (color ?? Theme.of(context).colorScheme.surfaceVariant).withOpacity(0.05),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+    final tile = Container(
+      width: 180,
+      height: 110,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(22),
+        border: border,
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Stack(
+        children: [
+          Align(
+            alignment: Alignment.topLeft,
+            child: Text(
+              group.title.isEmpty ? 'Без названия' : group.title,
+              style: Theme.of(context).textTheme.titleMedium,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+          Align(
+            alignment: Alignment.bottomLeft,
+            child: Icon(Icons.folder, size: 32, color: color),
+          ),
+          if (group.locked)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Icon(Icons.lock, color: color, size: 28),
+            ),
+        ],
+      ),
+    );
+
+    if (!blurred) return tile;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: Stack(
+        children: [
+          tile,
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+              child: Container(color: Colors.black.withValues(alpha: .2)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Карточка заметки
+class _NoteCard extends StatelessWidget {
+  const _NoteCard({
+    required this.note,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  final Note note;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final accent = note.color ?? scheme.primary;
+
+    return Material(
+      color: scheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Цветной акцент сверху
+              // Верхняя цветная полоска
               Container(
                 height: 4,
                 decoration: BoxDecoration(
-                  color: (color ?? Theme.of(context).colorScheme.primary).withOpacity(0.85),
-                  borderRadius: BorderRadius.circular(999),
+                  color: accent,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
               const SizedBox(height: 10),
@@ -782,30 +832,34 @@ class _NoteCard extends StatelessWidget {
                 note.title.isEmpty ? 'Без заголовка' : note.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Expanded(
                 child: Text(
                   note.text,
-                  maxLines: 4,
+                  maxLines: 5,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Icon(Icons.access_time, size: 14, color: Theme.of(context).hintColor),
-                  const SizedBox(width: 4),
-                  Text(_fmtDate(DateTime.fromMillisecondsSinceEpoch(note.updatedAt)),
-                      style: Theme.of(context).textTheme.bodySmall),
+                  Icon(Icons.access_time, size: 16, color: scheme.outline),
+                  const SizedBox(width: 6),
+                  Text(
+                    _fmtTime(note.updatedAt),
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelMedium
+                        ?.copyWith(color: scheme.outline),
+                  ),
                   const Spacer(),
-                  if (onDelete != null)
-                    IconButton(
-                      tooltip: 'Удалить',
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: onDelete,
-                    ),
+                  IconButton(
+                    tooltip: 'Удалить',
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
                 ],
               ),
             ],
@@ -816,131 +870,348 @@ class _NoteCard extends StatelessWidget {
   }
 }
 
-String _fmtDate(DateTime dt) {
-  String two(int n) => n.toString().padLeft(2, '0');
-  final now = DateTime.now();
-  final sameDay = dt.year == now.year && dt.month == now.month && dt.day == now.day;
-  return sameDay
-      ? '${two(dt.hour)}:${two(dt.minute)}'
-      : '${two(dt.day)}.${two(dt.month)}.${dt.year}';
-}
-// lib/main.dart — PART 3/3 (NoteEditorDialog + GroupEditorDialog)
-
-/// ======= NOTE EDITOR =======
-
-class NoteEditorDialog extends StatefulWidget {
-  final Note note;
-  const NoteEditorDialog({super.key, required this.note});
+/// Призрачная карточка (во время перетаскивания)
+class _NoteGhostCard extends StatelessWidget {
+  const _NoteGhostCard({this.color});
+  final Color? color;
 
   @override
-  State<NoteEditorDialog> createState() => _NoteEditorDialogState();
+  Widget build(BuildContext context) {
+    final c = color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
+    return Opacity(
+      opacity: .6,
+      child: Container(
+        width: 220,
+        height: 140,
+        decoration: BoxDecoration(
+          color: c,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _NoteEditorDialogState extends State<NoteEditorDialog> {
-  late TextEditingController _titleCtrl;
-  late TextEditingController _textCtrl;
+String _fmtTime(int ms) {
+  final d = DateTime.fromMillisecondsSinceEpoch(ms);
+  final two = (int v) => v.toString().padLeft(2, '0');
+  return '${two(d.hour)}:${two(d.minute)}  ${two(d.day)}.${two(d.month)}.${d.year}';
+}
+/// =======================
+/// ДИАЛОГИ / РЕДАКТОРЫ / PICKERS
+/// =======================
+
+/// Подтверждение действия
+class _ConfirmDialog extends StatelessWidget {
+  const _ConfirmDialog({required this.title, required this.message});
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Удалить'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Ввод пароля (проверка при открытии приватной группы)
+class _PasswordAskDialog extends StatefulWidget {
+  const _PasswordAskDialog({required this.groupTitle});
+  final String groupTitle;
+
+  @override
+  State<_PasswordAskDialog> createState() => _PasswordAskDialogState();
+}
+
+class _PasswordAskDialogState extends State<_PasswordAskDialog> {
+  final _ctrl = TextEditingController();
+  bool _obscure = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Пароль для «${widget.groupTitle}»'),
+      content: TextField(
+        controller: _ctrl,
+        obscureText: _obscure,
+        decoration: InputDecoration(
+          labelText: 'Пароль',
+          suffixIcon: IconButton(
+            icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+            onPressed: () => setState(() => _obscure = !_obscure),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _ctrl.text.trim()),
+          child: const Text('Ок'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Установка/смена пароля (возвращает новый пароль или null)
+class _PasswordEditorDialog extends StatefulWidget {
+  const _PasswordEditorDialog();
+
+  @override
+  State<_PasswordEditorDialog> createState() => _PasswordEditorDialogState();
+}
+
+class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
+  final _p1 = TextEditingController();
+  final _p2 = TextEditingController();
+  bool _ob1 = true, _ob2 = true;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Новый пароль'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _p1,
+            obscureText: _ob1,
+            decoration: InputDecoration(
+              labelText: 'Пароль',
+              suffixIcon: IconButton(
+                onPressed: () => setState(() => _ob1 = !_ob1),
+                icon: Icon(_ob1 ? Icons.visibility_off : Icons.visibility),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _p2,
+            obscureText: _ob2,
+            decoration: InputDecoration(
+              labelText: 'Повторите пароль',
+              suffixIcon: IconButton(
+                onPressed: () => setState(() => _ob2 = !_ob2),
+                icon: Icon(_ob2 ? Icons.visibility_off : Icons.visibility),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final a = _p1.text.trim(), b = _p2.text.trim();
+            if (a.isEmpty || a != b) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Пароли не совпадают')),
+              );
+              return;
+            }
+            Navigator.pop(context, a);
+          },
+          child: const Text('Готово'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Редактор группы: название + цвет (приватность меняем из меню группы)
+class _GroupEditorDialog extends StatefulWidget {
+  const _GroupEditorDialog({this.group});
+  final Group? group;
+
+  @override
+  State<_GroupEditorDialog> createState() => _GroupEditorDialogState();
+}
+
+class _GroupEditorDialogState extends State<_GroupEditorDialog> {
+  late final TextEditingController _title;
+  Color? _color;
+
+  @override
+  void initState() {
+    super.initState();
+    _title = TextEditingController(text: widget.group?.title ?? '');
+    _color = widget.group?.color;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isNew = widget.group == null;
+    final id = widget.group?.id ?? 'g_${DateTime.now().microsecondsSinceEpoch}';
+
+    return AlertDialog(
+      title: Text(isNew ? 'Новая группа' : 'Редактирование группы'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _title,
+            decoration: const InputDecoration(labelText: 'Название'),
+          ),
+          const SizedBox(height: 12),
+          _ColorPicker(
+            value: _color,
+            onChanged: (c) => setState(() => _color = c),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final g = Group(
+              id: id,
+              title: _title.text.trim().isEmpty ? 'Без названия' : _title.text.trim(),
+              colorHex: _color?.value,
+              locked: widget.group?.locked ?? false,
+              passwordHash: widget.group?.passwordHash,
+            );
+            Navigator.pop(context, g);
+          },
+          child: const Text('Сохранить'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Редактор заметки: заголовок, текст, цвет; локальная нумерация
+class _NoteEditorDialog extends StatefulWidget {
+  const _NoteEditorDialog({this.note, this.defaultGroupId});
+  final Note? note;
+  final String? defaultGroupId;
+
+  @override
+  State<_NoteEditorDialog> createState() => _NoteEditorDialogState();
+}
+
+class _NoteEditorDialogState extends State<_NoteEditorDialog> {
+  late final TextEditingController _title;
+  late final TextEditingController _body;
+  late String _id;
+  late String? _groupId;
   Color? _color;
   bool _numbering = false;
 
   @override
   void initState() {
     super.initState();
-    _titleCtrl = TextEditingController(text: widget.note.title);
-    _textCtrl = TextEditingController(text: widget.note.text);
-    _color = widget.note.colorHex != null ? Color(widget.note.colorHex!) : null;
+    _id = widget.note?.id ?? 'n_${DateTime.now().microsecondsSinceEpoch}';
+    _title = TextEditingController(text: widget.note?.title ?? '');
+    _body = TextEditingController(text: widget.note?.text ?? '');
+    _groupId = widget.note?.groupId ?? widget.defaultGroupId;
+    _color = widget.note?.color;
   }
 
-  @override
-  void dispose() {
-    _titleCtrl.dispose();
-    _textCtrl.dispose();
-    super.dispose();
-  }
+  void _toggleNumbering() {
+    setState(() => _numbering = !_numbering);
 
-  void _applyNumbering() {
-    if (!_numbering) return;
-    final text = _textCtrl.text.split('\n');
-    final newText = [
-      for (int i = 0; i < text.length; i++) '${i + 1}. ${text[i]}'
-    ].join('\n');
-    _textCtrl.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(offset: newText.length),
-    );
+    // Если включили нумерацию и курсор стоит в пустой строке — вставим "1. "
+    if (_numbering) {
+      final v = _body.value;
+      final text = v.text;
+      final sel = v.selection;
+      final cursor = sel.isValid ? sel.start : text.length;
+
+      // найдём начало текущей строки
+      final lineStart = text.lastIndexOf('\n', cursor - 1) + 1;
+      final lineEndNewline = text.indexOf('\n', cursor);
+      final lineEnd = lineEndNewline == -1 ? text.length : lineEndNewline;
+      final line = text.substring(lineStart, lineEnd);
+
+      if (line.trim().isEmpty) {
+        final withOne = text.replaceRange(cursor, cursor, '1. ');
+        _body.value = v.copyWith(
+          text: withOne,
+          selection: TextSelection.collapsed(offset: cursor + 3),
+        );
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final palette = _palette();
-
     return AlertDialog(
-      insetPadding: const EdgeInsets.all(16),
-      contentPadding: const EdgeInsets.all(16),
-      title: const Text('Редактировать заметку'),
-      content: SingleChildScrollView(
+      titlePadding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
+      contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      actionsPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(widget.note == null ? 'Новая заметка' : 'Редактирование'),
+          ),
+          IconButton(
+            tooltip: 'Нумерация',
+            onPressed: _toggleNumbering,
+            icon: Icon(_numbering ? Icons.format_list_numbered : Icons.format_list_numbered_outlined),
+          ),
+          IconButton(
+            tooltip: 'Цвет',
+            onPressed: () async {
+              final picked = await showDialog<Color?>(
+                context: context,
+                builder: (_) => _ColorDialog(initial: _color),
+              );
+              if (picked != null) setState(() => _color = picked);
+            },
+            icon: const Icon(Icons.color_lens_outlined),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 520,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
-              controller: _titleCtrl,
+              controller: _title,
               decoration: const InputDecoration(labelText: 'Заголовок'),
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                const Text('Цвет:'),
-                const SizedBox(width: 8),
-                Wrap(
-                  spacing: 6,
-                  children: [
-                    for (final c in palette)
-                      GestureDetector(
-                        onTap: () => setState(() => _color = c),
-                        child: Container(
-                          width: 26,
-                          height: 26,
-                          decoration: BoxDecoration(
-                            color: c,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: _color == c
-                                  ? Theme.of(context).colorScheme.onSurface
-                                  : Colors.white,
-                              width: _color == c ? 2 : 1,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Checkbox(
-                  value: _numbering,
-                  onChanged: (v) {
-                    setState(() {
-                      _numbering = v ?? false;
-                      _applyNumbering();
-                    });
-                  },
-                ),
-                const Text('Нумерация'),
-              ],
-            ),
             TextField(
-              controller: _textCtrl,
+              controller: _body,
+              minLines: 8,
+              maxLines: 16,
+              inputFormatters: [
+                _NumberingFormatter(() => _numbering),
+              ],
               decoration: const InputDecoration(
-                labelText: 'Текст заметки',
-                alignLabelWithHint: true,
+                border: OutlineInputBorder(),
+                hintText: 'Текст заметки…',
               ),
-              keyboardType: TextInputType.multiline,
-              maxLines: 10,
-              onChanged: (_) {
-                if (_numbering) _applyNumbering();
-              },
+            ),
+            const SizedBox(height: 8),
+            _ColorPicker(
+              value: _color,
+              onChanged: (c) => setState(() => _color = c),
             ),
           ],
         ),
@@ -952,12 +1223,15 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
         ),
         FilledButton(
           onPressed: () {
-            final n = widget.note
-              ..title = _titleCtrl.text.trim()
-              ..text = _textCtrl.text
-              ..colorHex = _color?.value
-              ..updatedAt = nowMs();
-            Navigator.pop(context, n);
+            final note = Note(
+              id: _id,
+              title: _title.text.trim(),
+              text: _body.text,
+              groupId: _groupId,
+              colorHex: _color?.value,
+              updatedAt: DateTime.now().millisecondsSinceEpoch,
+            );
+            Navigator.pop(context, note);
           },
           child: const Text('Сохранить'),
         ),
@@ -966,108 +1240,39 @@ class _NoteEditorDialogState extends State<NoteEditorDialog> {
   }
 }
 
-/// ======= GROUP EDITOR =======
-
-class GroupEditorDialog extends StatefulWidget {
-  final Group group;
-  const GroupEditorDialog({super.key, required this.group});
+/// Диалог выбора цвета (с живым предпросмотром)
+class _ColorDialog extends StatefulWidget {
+  const _ColorDialog({this.initial});
+  final Color? initial;
 
   @override
-  State<GroupEditorDialog> createState() => _GroupEditorDialogState();
+  State<_ColorDialog> createState() => _ColorDialogState();
 }
 
-class _GroupEditorDialogState extends State<GroupEditorDialog> {
-  late TextEditingController _titleCtrl;
-  late TextEditingController _passCtrl;
-  Color? _color;
-  bool _locked = false;
+class _ColorDialogState extends State<_ColorDialog> {
+  Color? value;
 
   @override
   void initState() {
     super.initState();
-    _titleCtrl = TextEditingController(text: widget.group.title);
-    _passCtrl = TextEditingController(text: widget.group.passwordHash ?? '');
-    _color = widget.group.colorHex != null ? Color(widget.group.colorHex!) : null;
-    _locked = widget.group.locked;
-  }
-
-  @override
-  void dispose() {
-    _titleCtrl.dispose();
-    _passCtrl.dispose();
-    super.dispose();
+    value = widget.initial;
   }
 
   @override
   Widget build(BuildContext context) {
-    final palette = _palette();
-
     return AlertDialog(
-      title: const Text('Редактировать группу'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _titleCtrl,
-              decoration: const InputDecoration(labelText: 'Название группы'),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Text('Цвет:'),
-                const SizedBox(width: 8),
-                Wrap(
-                  spacing: 6,
-                  children: [
-                    for (final c in palette)
-                      GestureDetector(
-                        onTap: () => setState(() => _color = c),
-                        child: Container(
-                          width: 26,
-                          height: 26,
-                          decoration: BoxDecoration(
-                            color: c,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: _color == c
-                                  ? Theme.of(context).colorScheme.onSurface
-                                  : Colors.white,
-                              width: _color == c ? 2 : 1,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              title: const Text('Сделать приватной'),
-              value: _locked,
-              onChanged: (v) => setState(() => _locked = v),
-            ),
-            if (_locked)
-              TextField(
-                controller: _passCtrl,
-                decoration: const InputDecoration(labelText: 'Пароль'),
-                obscureText: true,
-              ),
-          ],
-        ),
+      title: const Text('Выберите цвет'),
+      content: _ColorPicker(
+        value: value,
+        onChanged: (v) => setState(() => value = v),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
+        TextButton(
+          onPressed: () => Navigator.pop(context, widget.initial),
+          child: const Text('Отмена'),
+        ),
         FilledButton(
-          onPressed: () {
-            final g = widget.group
-              ..title = _titleCtrl.text.trim()
-              ..colorHex = _color?.value
-              ..locked = _locked
-              ..passwordHash = _locked ? _passCtrl.text : null;
-            Navigator.pop(context, g);
-          },
+          onPressed: () => Navigator.pop(context, value),
           child: const Text('Готово'),
         ),
       ],
@@ -1075,25 +1280,152 @@ class _GroupEditorDialogState extends State<GroupEditorDialog> {
   }
 }
 
-/// ======= COLOR PALETTE =======
+/// Палитра с мгновенным применением и чётким выделением выбора
+class _ColorPicker extends StatelessWidget {
+  const _ColorPicker({required this.value, required this.onChanged});
+  final Color? value;
+  final ValueChanged<Color?> onChanged;
 
-List<Color> _palette() => const [
-      Color(0xFFE57373),
-      Color(0xFFF06292),
-      Color(0xFFBA68C8),
-      Color(0xFF9575CD),
-      Color(0xFF7986CB),
-      Color(0xFF64B5F6),
-      Color(0xFF4FC3F7),
-      Color(0xFF4DD0E1),
-      Color(0xFF4DB6AC),
-      Color(0xFF81C784),
-      Color(0xFFAED581),
-      Color(0xFFDCE775),
-      Color(0xFFFFF176),
-      Color(0xFFFFD54F),
-      Color(0xFFFFB74D),
-      Color(0xFFFF8A65),
-      Color(0xFFA1887F),
-      Color(0xFF90A4AE),
-    ];
+  static const _palette = [
+    Color(0xFFFF7043),
+    Color(0xFFE57373),
+    Color(0xFFBA68C8),
+    Color(0xFF9575CD),
+    Color(0xFF64B5F6),
+    Color(0xFF4FC3F7),
+    Color(0xFF4DB6AC),
+    Color(0xFF81C784),
+    Color(0xFFAED581),
+    Color(0xFFFFD54F),
+    Color(0xFFFFB74D),
+    Color(0xFFA1887F),
+    Color(0xFF90A4AE),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        _ColorDot(
+          color: null,
+          selected: value == null,
+          onTap: () => onChanged(null),
+        ),
+        for (final c in _palette)
+          _ColorDot(
+            color: c,
+            selected: value?.value == c.value,
+            onTap: () => onChanged(c),
+          ),
+      ],
+    );
+  }
+}
+
+class _ColorDot extends StatelessWidget {
+  const _ColorDot({required this.color, required this.selected, required this.onTap});
+  final Color? color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ring = selected
+        ? Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Theme.of(context).colorScheme.primary,
+                width: 2.5,
+              ),
+            ),
+            child: Center(child: _dot()),
+          )
+        : _dot();
+
+    return InkResponse(
+      onTap: onTap,
+      radius: 22,
+      child: ring,
+    );
+  }
+
+  Widget _dot() => Container(
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          color: color ?? Colors.transparent,
+          shape: BoxShape.circle,
+          border: color == null ? Border.all(color: Colors.grey, width: 1.2) : null,
+        ),
+      );
+}
+
+/// =======================
+/// ФОРМАТТЕР НУМЕРАЦИИ
+/// =======================
+
+class _NumberingFormatter extends TextInputFormatter {
+  final bool Function() enabled;
+  _NumberingFormatter(this.enabled);
+
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    if (!enabled()) return newValue;
+
+    final oldText = oldValue.text;
+    final newText = newValue.text;
+
+    // 1) На Enter добавляем "<n>. "
+    final enteredNewLine = newText.length > oldText.length && newText.endsWith('\n');
+    if (enteredNewLine) {
+      final cursor = newValue.selection.end;
+      final before = newText.substring(0, cursor);
+      final lines = before.split('\n');
+
+      int nextNum = 1;
+      if (lines.length >= 2) {
+        final prev = lines[lines.length - 2];
+        final m = RegExp(r'^\s*(\d+)\.\s').firstMatch(prev);
+        if (m != null) {
+          nextNum = int.tryParse(m.group(1) ?? '0')! + 1;
+        }
+      }
+
+      final insert = '$nextNum. ';
+      final updated = newText.replaceRange(cursor, cursor, insert);
+      return newValue.copyWith(
+        text: updated,
+        selection: TextSelection.collapsed(offset: cursor + insert.length),
+      );
+    }
+
+    // 2) Не блокируем удаление: если строка — только "n. ", и пользователь жмёт Backspace —
+    // убираем префикс целиком, чтобы удаление продолжалось естественно.
+    final removed = oldText.length > newText.length;
+    if (removed) {
+      final cur = newValue.selection.end;
+      final start = newText.lastIndexOf('\n', cur - 1) + 1;
+      final end = newText.indexOf('\n', start);
+      final line = newText.substring(start, end == -1 ? newText.length : end);
+
+      if (RegExp(r'^\s*\d+\.\s?$').hasMatch(line)) {
+        // удалим до пустой строки
+        final prefix = RegExp(r'^\s*\d+\.\s?').firstMatch(line)!.group(0)!;
+        final updated = newText.replaceRange(start, start + prefix.length, '');
+        final shift = prefix.length;
+        return newValue.copyWith(
+          text: updated,
+          selection: TextSelection.collapsed(offset: cur - shift),
+        );
+      }
+    }
+
+    return newValue;
+  }
+}
