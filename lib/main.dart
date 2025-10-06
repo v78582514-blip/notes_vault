@@ -294,7 +294,7 @@ class VaultStore extends ChangeNotifier {
 
 /* ===================== HELPERS ===================== */
 
-String _hash(String s) => crypto.sha256.convert(utf8.encode(s)).toString();
+String _sha256(String s) => crypto.sha256.convert(utf8.encode(s)).toString();
 
 String _fmt(int ms) {
   final dt = DateTime.fromMillisecondsSinceEpoch(ms);
@@ -310,10 +310,26 @@ List<Color> _palette() => const [
   Color(0xFFA1887F), Color(0xFF90A4AE),
 ];
 
-/* ===================== DRAG TYPES ===================== */
-abstract class _DragData {}
-class _DragNote extends _DragData { final String id; _DragNote(this.id); }
-class _DragGroup extends _DragData { final String id; _DragGroup(this.id); }
+String _firstLine(String t) {
+  final lines = t.trim().split('\n');
+  return lines.isNotEmpty ? lines.first.trim() : '';
+}
+
+Future<int?> _choose(BuildContext context, List<String> items) {
+  return showDialog<int?>(
+    context: context,
+    builder: (_) => SimpleDialog(
+      children: [
+        for (int i = 0; i < items.length; i++)
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, i),
+            child: Text(items[i]),
+          ),
+      ],
+    ),
+  );
+}
+
 /* ===================== UI: HOME (GRID ONLY) ===================== */
 
 class NotesHome extends StatefulWidget {
@@ -450,7 +466,7 @@ class _NotesHomeState extends State<NotesHome> {
       if (!g.locked) {
         final pass = await _askPasswordNew(context);
         if (pass != null && pass.isNotEmpty) {
-          await store.setGroupPassword(g.id, passHash: _hash(pass));
+          await store.setGroupPassword(g.id, passHash: _sha256(pass));
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Пароль установлен')));
         }
       } else {
@@ -460,14 +476,14 @@ class _NotesHomeState extends State<NotesHome> {
           if (old == null) return;
           final newPass = await _askPasswordNew(context);
           if (newPass == null || newPass.isEmpty) return;
-          final ok = await store.changeGroupPassword(g.id, oldHash: _hash(old), newHash: _hash(newPass));
+          final ok = await store.changeGroupPassword(g.id, oldHash: _sha256(old), newHash: _sha256(newPass));
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Пароль изменён' : 'Неверный пароль')));
           }
         } else if (action == 1) {
           final old = await _askPasswordOld(context);
           if (old == null) return;
-          final ok = await store.clearGroupPassword(g.id, oldHash: _hash(old));
+          final ok = await store.clearGroupPassword(g.id, oldHash: _sha256(old));
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Пароль снят' : 'Неверный пароль')));
           }
@@ -781,6 +797,10 @@ class _GroupTileFixed extends StatelessWidget {
 
 /* ===================== NOTE CARD & DRAG FEEDBACK ===================== */
 
+abstract class _DragData {}
+class _DragNote extends _DragData { final String id; _DragNote(this.id); }
+class _DragGroup extends _DragData { final String id; _DragGroup(this.id); }
+
 class _NoteCard extends StatelessWidget {
   final NoteItem note;
   final bool highlighted;
@@ -926,6 +946,7 @@ class _GroupChipFeedback extends StatelessWidget {
     );
   }
 }
+
 /* ===================== NOTE EDITOR ===================== */
 
 class NoteEditor extends StatefulWidget {
@@ -949,35 +970,68 @@ class _NoteEditorState extends State<NoteEditor> {
     _titleCtrl = TextEditingController(text: widget.note?.title ?? '');
     _textCtrl = TextEditingController(text: widget.note?.text ?? '');
     _color = widget.note?.colorHex != null ? Color(widget.note!.colorHex!) : null;
+    _numbering = widget.note?.numbered ?? false;
+
+    // Если нумерация активна — гарантируем "1. " в первой строке
+    if (_numbering) _ensureFirstLineNumbered();
+  }
+
+  void _ensureFirstLineNumbered() {
+    final text = _textCtrl.text;
+    final lines = text.split('\n');
+    if (lines.isEmpty) {
+      _textCtrl.text = '1. ';
+      _textCtrl.selection = TextSelection.collapsed(offset: _textCtrl.text.length);
+      return;
+    }
+    final first = lines.first;
+    if (!RegExp(r'^\s*\d+\.\s').hasMatch(first)) {
+      lines[0] = '1. $first';
+      final joined = lines.join('\n');
+      _textCtrl.value = TextEditingValue(
+        text: joined,
+        selection: TextSelection.collapsed(offset: joined.length),
+      );
+    }
   }
 
   void _toggleNumbering() {
     setState(() {
       _numbering = !_numbering;
-      if (_numbering && _textCtrl.text.trim().isEmpty) {
-        _textCtrl.text = '1. ';
-        _textCtrl.selection = TextSelection.collapsed(offset: _textCtrl.text.length);
-      }
     });
+    if (_numbering) {
+      _ensureFirstLineNumbered();
+    }
   }
 
   void _onChanged(String val) {
-    if (_numbering && val.endsWith('\n')) {
-      final lines = val.split('\n');
-      final next = lines.length;
-      _textCtrl.text = val + '$next. ';
-      _textCtrl.selection = TextSelection.collapsed(offset: _textCtrl.text.length);
+    if (!_numbering) return;
+    final sel = _textCtrl.selection.baseOffset;
+    if (sel <= 0 || sel > val.length) return;
+
+    // Если только что ввели перевод строки, продолжаем нумерацию
+    if (val.substring(sel - 1, sel) == '\n') {
+      final before = val.substring(0, sel - 1);
+      final lastLine = before.split('\n').last;
+      final m = RegExp(r'^\s*(\d+)\.\s').firstMatch(lastLine);
+      final next = m != null ? (int.parse(m.group(1)!) + 1) : 1;
+      final newText = val.substring(0, sel) + '$next. ' + val.substring(sel);
+      _textCtrl.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: sel + 3 + next.toString().length),
+      );
     }
   }
 
   Future<void> _save() async {
     final title = _titleCtrl.text.trim();
-    final text = _textCtrl.text.trim();
-    final n = widget.note ?? NoteItem.newNote();
+    final text = _textCtrl.text;
+    final n = widget.note ?? NoteItem.newNote(groupId: widget.groupId);
     n.title = title;
     n.text = text;
     n.colorHex = _color?.value;
-    n.groupId = widget.groupId;
+    n.numbered = _numbering;
+    n.updatedAt = DateTime.now().millisecondsSinceEpoch;
     Navigator.pop(context, n);
   }
 
@@ -988,19 +1042,27 @@ class _NoteEditorState extends State<NoteEditor> {
         title: Text(widget.note == null ? 'Новая заметка' : 'Редактирование'),
         actions: [
           IconButton(
-            tooltip: 'Включить/выключить нумерацию',
+            tooltip: 'Нумерация',
             icon: Icon(_numbering ? Icons.format_list_numbered : Icons.format_list_bulleted),
             onPressed: _toggleNumbering,
           ),
           IconButton(
-            tooltip: 'Цвет заметки',
+            tooltip: 'Цвет',
             icon: const Icon(Icons.palette_outlined),
             onPressed: () async {
               final c = await _pickColor(context, initial: _color);
               if (c != null) setState(() => _color = c);
             },
           ),
+          IconButton(
+            tooltip: 'Сохранить',
+            icon: const Icon(Icons.check),
+            onPressed: _save,
+          ),
         ],
+        bottom: _color != null
+            ? PreferredSize(preferredSize: const Size.fromHeight(4), child: Container(height: 4, color: _color))
+            : null,
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
@@ -1023,75 +1085,97 @@ class _NoteEditorState extends State<NoteEditor> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _save,
-                  icon: const Icon(Icons.check),
-                  label: const Text('Сохранить'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                  label: const Text('Отмена'),
-                ),
-              ),
-            ],
-          ),
         ]),
       ),
     );
   }
 }
 
-/* ===================== COLOR PICKER ===================== */
+/* ===================== COLOR PICKER (live highlight) ===================== */
 
 Future<Color?> _pickColor(BuildContext context, {Color? initial}) async {
-  Color? selected = initial;
-  return await showDialog<Color>(
+  final palette = _palette();
+  return showDialog<Color?>(
     context: context,
-    builder: (context) {
-      return AlertDialog(
-        title: const Text('Выберите цвет'),
-        content: Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _palette().map((c) {
-            final selectedNow = selected?.value == c.value;
-            return GestureDetector(
-              onTap: () => selected = c,
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: c,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: selectedNow
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.outlineVariant,
-                    width: selectedNow ? 3 : 1,
+    builder: (ctx) {
+      Color? selected = initial;
+      return StatefulBuilder(
+        builder: (ctx, setState) {
+          return AlertDialog(
+            title: const Text('Выберите цвет'),
+            contentPadding: EdgeInsets.zero,
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Полоса-превью выбранного цвета
+                Container(
+                  height: 4,
+                  width: double.infinity,
+                  color: selected ?? Theme.of(ctx).colorScheme.surfaceVariant,
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      // Без цвета
+                      GestureDetector(
+                        onTap: () => setState(() => selected = null),
+                        child: _ColorCircle(color: null, selected: selected == null),
+                      ),
+                      for (final c in palette)
+                        GestureDetector(
+                          onTap: () => setState(() => selected = c),
+                          child: _ColorCircle(
+                            color: c,
+                            selected: selected?.value == c.value,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-              ),
-            );
-          }).toList(),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, selected),
-            child: const Text('Готово'),
-          ),
-        ],
+                const SizedBox(height: 12),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Отмена')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, selected), child: const Text('Готово')),
+            ],
+          );
+        },
       );
     },
   );
+}
+
+class _ColorCircle extends StatelessWidget {
+  final Color? color;
+  final bool selected;
+  const _ColorCircle({required this.color, required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = selected
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.outlineVariant;
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Container(
+          width: 30, height: 30,
+          decoration: BoxDecoration(
+            color: color ?? Colors.transparent,
+            shape: BoxShape.circle,
+            border: Border.all(color: borderColor, width: selected ? 3 : 1),
+          ),
+          child: color == null ? const Center(child: Icon(Icons.close, size: 16)) : null,
+        ),
+        if (selected && color != null) const Icon(Icons.check, size: 16),
+      ],
+    );
+  }
 }
 
 /* ===================== PASSWORD / PROMPTS ===================== */
@@ -1163,8 +1247,8 @@ Future<bool?> _askUnlock(BuildContext context, GroupItem g) async {
       actions: [
         TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
         FilledButton(
-          onPressed: () async {
-            final ok = await VaultStore.verifyPassword(g, ctrl.text);
+          onPressed: () {
+            final ok = (g.passHash != null) && (_sha256(ctrl.text) == g.passHash);
             Navigator.pop(context, ok);
           },
           child: const Text('OK'),
@@ -1173,29 +1257,3 @@ Future<bool?> _askUnlock(BuildContext context, GroupItem g) async {
     ),
   );
 }
-
-/* ===================== HELPERS ===================== */
-
-List<Color> _palette() => const [
-  Color(0xFFE57373), Color(0xFFF06292), Color(0xFFBA68C8), Color(0xFF9575CD),
-  Color(0xFF7986CB), Color(0xFF64B5F6), Color(0xFF4FC3F7), Color(0xFF4DD0E1),
-  Color(0xFF4DB6AC), Color(0xFF81C784), Color(0xFFAED581), Color(0xFFDCE775),
-  Color(0xFFFFF176), Color(0xFFFFD54F), Color(0xFFFFB74D), Color(0xFFFF8A65),
-  Color(0xFFA1887F), Color(0xFF90A4AE),
-];
-
-String _firstLine(String t) {
-  final lines = t.trim().split('\n');
-  return lines.isNotEmpty ? lines.first.trim() : '';
-}
-
-String _fmt(int ms) {
-  final dt = DateTime.fromMillisecondsSinceEpoch(ms);
-  final now = DateTime.now();
-  final sameDay = dt.year == now.year && dt.month == now.month && dt.day == now.day;
-  return sameDay
-      ? '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
-      : '${dt.day}.${dt.month}.${dt.year}';
-}
-
-String _hash(String input) => input.split('').fold<int>(0, (a, c) => a + c.codeUnitAt(0)).toString();
