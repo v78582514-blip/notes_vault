@@ -2,258 +2,385 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-void main() => runApp(const NotesVaultApp());
-
-/* ---------------- APP ---------------- */
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const NotesVaultApp());
+}
 
 class NotesVaultApp extends StatefulWidget {
   const NotesVaultApp({super.key});
+
   @override
   State<NotesVaultApp> createState() => _NotesVaultAppState();
 }
 
 class _NotesVaultAppState extends State<NotesVaultApp> {
-  ThemeMode _mode = ThemeMode.light;
+  bool isDark = false;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Notes Vault',
-      themeMode: _mode,
+      themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
       theme: ThemeData(
+        colorSchemeSeed: Colors.deepPurple,
+        brightness: Brightness.light,
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-        // Если вдруг будет ругаться — просто закомментируй строку ниже:
-        // cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
       ),
-      darkTheme: ThemeData.dark(useMaterial3: true).copyWith(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.indigo,
-          brightness: Brightness.dark,
-        ),
+      darkTheme: ThemeData(
+        colorSchemeSeed: Colors.deepPurple,
+        brightness: Brightness.dark,
+        useMaterial3: true,
       ),
       home: NotesHome(
-        isDark: _mode == ThemeMode.dark,
-        onToggleTheme: () =>
-            setState(() => _mode = _mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark),
+        toggleTheme: () => setState(() => isDark = !isDark),
       ),
     );
   }
 }
 
-/* ---------------- MODEL + STORE ---------------- */
-
 class Note {
   String id;
   String text;
-  int updatedAt;
+  String? groupId;
+  DateTime updatedAt;
 
-  Note({required this.id, required this.text, required this.updatedAt});
+  Note({
+    required this.id,
+    required this.text,
+    this.groupId,
+    required this.updatedAt,
+  });
 
-  factory Note.newNote() => Note(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        text: '',
-        updatedAt: DateTime.now().millisecondsSinceEpoch,
+  factory Note.newNote() =>
+      Note(id: UniqueKey().toString(), text: '', updatedAt: DateTime.now());
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'text': text,
+        'groupId': groupId,
+        'updatedAt': updatedAt.toIso8601String(),
+      };
+
+  static Note fromJson(Map<String, dynamic> json) => Note(
+        id: json['id'],
+        text: json['text'],
+        groupId: json['groupId'],
+        updatedAt: DateTime.parse(json['updatedAt']),
       );
-
-  Map<String, dynamic> toJson() => {'id': id, 'text': text, 'updatedAt': updatedAt};
-  static Note fromJson(Map<String, dynamic> j) =>
-      Note(id: j['id'], text: j['text'] ?? '', updatedAt: j['updatedAt'] ?? 0);
 }
 
-class NotesStore extends ChangeNotifier {
-  static const _k = 'notes_v1_store';
-  final List<Note> _list = [];
-  bool _loaded = false;
+class Group {
+  String id;
+  String title;
+  List<String> noteIds;
 
-  List<Note> get items => List.unmodifiable(_list);
-  bool get loaded => _loaded;
+  Group({required this.id, required this.title, required this.noteIds});
 
-  Future<void> load() async {
-    final sp = await SharedPreferences.getInstance();
-    final raw = sp.getString(_k);
-    if (raw != null && raw.isNotEmpty) {
-      final List data = jsonDecode(raw);
-      _list
-        ..clear()
-        ..addAll(data.map((e) => Note.fromJson(Map<String, dynamic>.from(e))));
-    }
-    _loaded = true;
-    notifyListeners();
-  }
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'noteIds': noteIds,
+      };
 
-  Future<void> _save() async {
-    final sp = await SharedPreferences.getInstance();
-    await sp.setString(_k, jsonEncode(_list.map((e) => e.toJson()).toList()));
-  }
-
-  Future<void> add(Note n) async {
-    _list.add(n);
-    await _save();
-    notifyListeners();
-  }
-
-  Future<void> update(Note n) async {
-    final i = _list.indexWhere((e) => e.id == n.id);
-    if (i != -1) {
-      _list[i] = n..updatedAt = DateTime.now().millisecondsSinceEpoch;
-      await _save();
-      notifyListeners();
-    }
-  }
-
-  Future<void> remove(String id) async {
-    _list.removeWhere((e) => e.id == id);
-    await _save();
-    notifyListeners();
-  }
+  static Group fromJson(Map<String, dynamic> json) => Group(
+        id: json['id'],
+        title: json['title'],
+        noteIds: (json['noteIds'] as List).cast<String>(),
+      );
 }
 
-/* ---------------- HOME ---------------- */
+class NotesStorage {
+  static const _notesKey = 'notes_vault_notes';
+  static const _groupsKey = 'notes_vault_groups';
+
+  static Future<List<Note>> loadNotes() async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = prefs.getString(_notesKey);
+    if (data == null) return [];
+    return (jsonDecode(data) as List)
+        .map((e) => Note.fromJson(e))
+        .toList(growable: true);
+  }
+
+  static Future<void> saveNotes(List<Note> notes) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _notesKey, jsonEncode(notes.map((e) => e.toJson()).toList()));
+  }
+
+  static Future<List<Group>> loadGroups() async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = prefs.getString(_groupsKey);
+    if (data == null) return [];
+    return (jsonDecode(data) as List)
+        .map((e) => Group.fromJson(e))
+        .toList(growable: true);
+  }
+
+  static Future<void> saveGroups(List<Group> groups) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _groupsKey, jsonEncode(groups.map((e) => e.toJson()).toList()));
+  }
+}
 
 class NotesHome extends StatefulWidget {
-  final bool isDark;
-  final VoidCallback onToggleTheme;
-  const NotesHome({super.key, required this.isDark, required this.onToggleTheme});
+  final VoidCallback toggleTheme;
+
+  const NotesHome({super.key, required this.toggleTheme});
 
   @override
   State<NotesHome> createState() => _NotesHomeState();
 }
 
 class _NotesHomeState extends State<NotesHome> {
-  final store = NotesStore();
+  List<Note> notes = [];
+  List<Group> groups = [];
 
   @override
   void initState() {
     super.initState();
-    store.addListener(() => setState(() {}));
-    store.load();
+    _loadAll();
   }
 
-  Future<void> _create() async {
-    final res = await Navigator.of(context).push<Note>(
-      MaterialPageRoute(builder: (_) => const NoteEditor()),
+  Future<void> _loadAll() async {
+    notes = await NotesStorage.loadNotes();
+    groups = await NotesStorage.loadGroups();
+    setState(() {});
+  }
+
+  Future<void> _saveAll() async {
+    await NotesStorage.saveNotes(notes);
+    await NotesStorage.saveGroups(groups);
+  }
+
+  void _createNote() async {
+    final newNote = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => NoteEditor()),
     );
-    if (res != null) {
-      await store.add(res);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Заметка создана')),
-        );
-      }
+    if (newNote != null && newNote is Note) {
+      setState(() => notes.add(newNote));
+      _saveAll();
     }
   }
 
-  Future<void> _edit(Note src) async {
-    final res = await Navigator.of(context).push<Note>(
-      MaterialPageRoute(builder: (_) => NoteEditor(note: src)),
-    );
-    if (res != null) {
-      await store.update(res);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Изменения сохранены')),
-        );
-      }
-    }
-  }
-
-  void _askDelete(Note n) async {
-    final ok = await showDialog<bool>(
+  void _editGroup(Group group) async {
+    final titleController = TextEditingController(text: group.title);
+    await showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Удалить заметку?'),
-        content: const Text('Действие нельзя отменить.'),
+        title: const Text('Редактировать группу'),
+        content: TextField(
+          controller: titleController,
+          decoration: const InputDecoration(labelText: 'Название'),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Удалить')),
+          TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: const Text('Отмена')),
+          TextButton(
+              onPressed: () {
+                setState(() => group.title = titleController.text.trim());
+                _saveAll();
+                Navigator.pop(context);
+              },
+              child: const Text('Сохранить')),
         ],
       ),
     );
-    if (ok == true) {
-      await store.remove(n.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Удалено')),
-        );
+  }
+
+  void _deleteGroup(Group group) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Удалить группу?'),
+        content: const Text('Все заметки останутся без группы.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Отмена')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Удалить')),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      for (final n in notes) {
+        if (n.groupId == group.id) n.groupId = null;
       }
+      groups.remove(group);
+      _saveAll();
+      setState(() {});
+    }
+  }
+
+  void _deleteNote(Note n) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Удалить заметку?'),
+        content: const Text('Вы уверены, что хотите удалить эту заметку?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Отмена')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Удалить')),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      setState(() => notes.removeWhere((x) => x.id == n.id));
+      _saveAll();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final notes = store.items;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notes Vault'),
         actions: [
           IconButton(
-            tooltip: 'Тема',
-            icon: Icon(widget.isDark ? Icons.light_mode : Icons.dark_mode),
-            onPressed: widget.onToggleTheme,
-          ),
+            onPressed: widget.toggleTheme,
+            icon: const Icon(Icons.brightness_4_outlined),
+          )
         ],
       ),
-      body: !store.loaded
-          ? const Center(child: CircularProgressIndicator())
-          : notes.isEmpty
-              ? const Center(child: Text('Нет заметок'))
-              : GridView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: notes.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                  ),
-                  itemBuilder: (_, i) {
-                    final n = notes[i];
-                    return GestureDetector(
-                      onTap: () => _edit(n),
-                      onLongPress: () => _askDelete(n),
+      body: Padding(
+        padding: const EdgeInsets.all(8),
+        child: groups.isEmpty && notes.isEmpty
+            ? const Center(child: Text('Нет заметок'))
+            : GridView.count(
+                crossAxisCount: 2,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+                children: [
+                  ...groups.map(
+                    (g) => GestureDetector(
+                      onTap: () => _editGroup(g),
                       child: Card(
-                        elevation: 2,
                         child: Padding(
                           padding: const EdgeInsets.all(12),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Text(
-                                  n.text.isEmpty ? 'Без текста' : n.text,
-                                  maxLines: 8,
-                                  overflow: TextOverflow.ellipsis,
+                              Text(g.title,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 8),
+                              ...notes
+                                  .where((n) => n.groupId == g.id)
+                                  .take(3)
+                                  .map((n) => Text(
+                                        n.text.split('\n').first,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      )),
+                              const Spacer(),
+                              Align(
+                                alignment: Alignment.bottomRight,
+                                child: IconButton(
+                                  icon: const Icon(Icons.delete_outline),
+                                  onPressed: () => _deleteGroup(g),
                                 ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                _fmt(n.updatedAt),
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
+                              )
                             ],
                           ),
                         ),
                       ),
-                    );
-                  },
-                ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+                    ),
+                  ),
+                  ...notes
+                      .where((n) => n.groupId == null)
+                      .map(
+                        (n) => GestureDetector(
+                          onTap: () async {
+                            final edited = await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => NoteEditor(note: n)),
+                            );
+                            if (edited != null && edited is Note) {
+                              setState(() {
+                                final i =
+                                    notes.indexWhere((x) => x.id == edited.id);
+                                notes[i] = edited;
+                              });
+                              _saveAll();
+                            }
+                          },
+                          onLongPress: () async {
+                            final group = await showMenu<Group>(
+                              context: context,
+                              position:
+                                  const RelativeRect.fromLTRB(100, 100, 0, 0),
+                              items: groups
+                                  .map(
+                                    (g) => PopupMenuItem<Group>(
+                                      value: g,
+                                      child: Text('Добавить в "${g.title}"'),
+                                    ),
+                                  )
+                                  .toList(),
+                            );
+                            if (group != null) {
+                              setState(() => n.groupId = group.id);
+                              _saveAll();
+                            }
+                          },
+                          child: Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      n.text.isEmpty
+                                          ? '(Пустая заметка)'
+                                          : n.text,
+                                      maxLines: 6,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Обновлено: ${n.updatedAt.day.toString().padLeft(2, '0')}.${n.updatedAt.month.toString().padLeft(2, '0')}.${n.updatedAt.year} ${n.updatedAt.hour.toString().padLeft(2, '0')}:${n.updatedAt.minute.toString().padLeft(2, '0')}',
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                  Align(
+                                    alignment: Alignment.bottomRight,
+                                    child: IconButton(
+                                      icon:
+                                          const Icon(Icons.delete_outline, size: 20),
+                                      onPressed: () => _deleteNote(n),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                ],
+              ),
+      ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _create,
+        onPressed: _createNote,
         child: const Icon(Icons.add),
       ),
     );
   }
 }
-
-String _fmt(int ms) {
-  final dt = DateTime.fromMillisecondsSinceEpoch(ms);
-  String two(int n) => n.toString().padLeft(2, '0');
-  return 'Обновлено: ${two(dt.day)}.${two(dt.month)}.${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
-}
-
-/* ---------------- EDITOR ---------------- */
 
 class NoteEditor extends StatefulWidget {
   final Note? note;
@@ -264,130 +391,44 @@ class NoteEditor extends StatefulWidget {
 }
 
 class _NoteEditorState extends State<NoteEditor> {
-  late final TextEditingController _c;
-  bool _numbered = false;
-  TextEditingValue _last = const TextEditingValue();
-  bool _internal = false;
+  late TextEditingController controller;
 
   @override
   void initState() {
     super.initState();
-    _c = TextEditingController(text: widget.note?.text ?? '');
-    _last = _c.value;
-    _c.addListener(_onChanged);
-  }
-
-  @override
-  void dispose() {
-    _c.removeListener(_onChanged);
-    _c.dispose();
-    super.dispose();
-  }
-
-  void _toggleNumbering() {
-    setState(() => _numbered = !_numbered);
-    if (_numbered && _c.text.trim().isEmpty) {
-      _internal = true;
-      _c.text = '1. ';
-      _c.selection = TextSelection.collapsed(offset: _c.text.length);
-      _internal = false;
-      _last = _c.value;
-    }
-  }
-
-  void _onChanged() {
-    if (_internal) return;
-    final now = _c.value;
-    final old = _last;
-    final caret = now.selection.baseOffset;
-
-    if (_numbered && caret >= 0) {
-      final inserted =
-          now.text.length == old.text.length + 1 &&
-          now.selection.baseOffset == old.selection.baseOffset + 1;
-
-      // Enter → следующий номер
-      if (inserted && now.text.substring(0, caret).endsWith('\n')) {
-        final before = now.text.substring(0, caret);
-        final lines = before.split('\n');
-        int count = 0;
-        for (final l in lines) {
-          final stripped = l.replaceFirst(RegExp(r'^\d+\. '), '');
-          if (stripped.trim().isNotEmpty) count++;
-        }
-        final insert = '${count + 1}. ';
-        _internal = true;
-        _c.value = TextEditingValue(
-          text: now.text.replaceRange(caret, caret, insert),
-          selection: TextSelection.collapsed(offset: caret + insert.length),
-        );
-        _internal = false;
-        _last = _c.value;
-        return;
-      }
-
-      // Пустая строка → "1. "
-      final start = now.text.lastIndexOf('\n', caret - 1) + 1;
-      final end = now.text.indexOf('\n', caret);
-      final e = end == -1 ? now.text.length : end;
-      final line = now.text.substring(start, e);
-      final hasPrefix = RegExp(r'^\d+\. ').hasMatch(line);
-      final left = now.text.substring(start, caret);
-      if (!hasPrefix && left.trim().isEmpty && line.trim().isEmpty) {
-        const insert = '1. ';
-        _internal = true;
-        _c.value = TextEditingValue(
-          text: now.text.replaceRange(start, start, insert),
-          selection: TextSelection.collapsed(offset: caret + insert.length),
-        );
-        _internal = false;
-        _last = _c.value;
-        return;
-      }
-    }
-
-    _last = now;
+    controller = TextEditingController(text: widget.note?.text ?? '');
   }
 
   void _save() {
-    final result = (widget.note ?? Note.newNote())
-      ..text = _c.text.trimRight()
-      ..updatedAt = DateTime.now().millisecondsSinceEpoch;
-    Navigator.pop(context, result);
+    final text = controller.text.trim();
+    if (text.isEmpty) return;
+    Navigator.pop(
+      context,
+      (widget.note ?? Note.newNote())
+        ..text = text
+        ..updatedAt = DateTime.now(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isNew = widget.note == null;
     return Scaffold(
       appBar: AppBar(
-        title: Text(isNew ? 'Новая заметка' : 'Редактирование'),
+        title: Text(widget.note == null ? 'Новая заметка' : 'Редактировать'),
         actions: [
-          IconButton(
-            tooltip: 'Нумерация строк',
-            icon: Icon(_numbered ? Icons.format_list_numbered : Icons.list),
-            onPressed: _toggleNumbering,
-          ),
-          IconButton(
-            tooltip: 'Сохранить',
-            icon: const Icon(Icons.save),
+          TextButton(
             onPressed: _save,
-          ),
+            child: const Text('Сохранить'),
+          )
         ],
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: TextField(
-            controller: _c,
-            autofocus: true,
-            minLines: 10,
-            maxLines: null,
-            decoration: const InputDecoration(
-              hintText: 'Текст заметки…',
-              border: InputBorder.none,
-            ),
-          ),
+      body: Padding(
+        padding: const EdgeInsets.all(12),
+        child: TextField(
+          controller: controller,
+          decoration: const InputDecoration(border: InputBorder.none),
+          keyboardType: TextInputType.multiline,
+          maxLines: null,
         ),
       ),
     );
