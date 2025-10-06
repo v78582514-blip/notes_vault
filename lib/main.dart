@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() => runApp(const NotesVaultApp());
 
@@ -22,7 +24,8 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
-        cardTheme: const CardThemeData(margin: EdgeInsets.all(8)), // ← фикс
+        // Если вдруг будет ругаться — просто закомментируй строку ниже:
+        // cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
       ),
       darkTheme: ThemeData.dark(useMaterial3: true).copyWith(
         colorScheme: ColorScheme.fromSeed(
@@ -39,18 +42,72 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
   }
 }
 
-/* ---------------- MODEL ---------------- */
+/* ---------------- MODEL + STORE ---------------- */
 
 class Note {
   String id;
   String text;
   int updatedAt;
+
   Note({required this.id, required this.text, required this.updatedAt});
+
   factory Note.newNote() => Note(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
         text: '',
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       );
+
+  Map<String, dynamic> toJson() => {'id': id, 'text': text, 'updatedAt': updatedAt};
+  static Note fromJson(Map<String, dynamic> j) =>
+      Note(id: j['id'], text: j['text'] ?? '', updatedAt: j['updatedAt'] ?? 0);
+}
+
+class NotesStore extends ChangeNotifier {
+  static const _k = 'notes_v1_store';
+  final List<Note> _list = [];
+  bool _loaded = false;
+
+  List<Note> get items => List.unmodifiable(_list);
+  bool get loaded => _loaded;
+
+  Future<void> load() async {
+    final sp = await SharedPreferences.getInstance();
+    final raw = sp.getString(_k);
+    if (raw != null && raw.isNotEmpty) {
+      final List data = jsonDecode(raw);
+      _list
+        ..clear()
+        ..addAll(data.map((e) => Note.fromJson(Map<String, dynamic>.from(e))));
+    }
+    _loaded = true;
+    notifyListeners();
+  }
+
+  Future<void> _save() async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_k, jsonEncode(_list.map((e) => e.toJson()).toList()));
+  }
+
+  Future<void> add(Note n) async {
+    _list.add(n);
+    await _save();
+    notifyListeners();
+  }
+
+  Future<void> update(Note n) async {
+    final i = _list.indexWhere((e) => e.id == n.id);
+    if (i != -1) {
+      _list[i] = n..updatedAt = DateTime.now().millisecondsSinceEpoch;
+      await _save();
+      notifyListeners();
+    }
+  }
+
+  Future<void> remove(String id) async {
+    _list.removeWhere((e) => e.id == id);
+    await _save();
+    notifyListeners();
+  }
 }
 
 /* ---------------- HOME ---------------- */
@@ -65,14 +122,21 @@ class NotesHome extends StatefulWidget {
 }
 
 class _NotesHomeState extends State<NotesHome> {
-  final List<Note> _notes = [];
+  final store = NotesStore();
+
+  @override
+  void initState() {
+    super.initState();
+    store.addListener(() => setState(() {}));
+    store.load();
+  }
 
   Future<void> _create() async {
     final res = await Navigator.of(context).push<Note>(
       MaterialPageRoute(builder: (_) => const NoteEditor()),
     );
     if (res != null) {
-      setState(() => _notes.add(res));
+      await store.add(res);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Заметка создана')),
@@ -86,10 +150,7 @@ class _NotesHomeState extends State<NotesHome> {
       MaterialPageRoute(builder: (_) => NoteEditor(note: src)),
     );
     if (res != null) {
-      setState(() {
-        final i = _notes.indexWhere((n) => n.id == src.id);
-        if (i != -1) _notes[i] = res;
-      });
+      await store.update(res);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Изменения сохранены')),
@@ -111,7 +172,7 @@ class _NotesHomeState extends State<NotesHome> {
       ),
     );
     if (ok == true) {
-      setState(() => _notes.removeWhere((x) => x.id == n.id));
+      await store.remove(n.id);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Удалено')),
@@ -122,6 +183,7 @@ class _NotesHomeState extends State<NotesHome> {
 
   @override
   Widget build(BuildContext context) {
+    final notes = store.items;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notes Vault'),
@@ -133,47 +195,49 @@ class _NotesHomeState extends State<NotesHome> {
           ),
         ],
       ),
-      body: _notes.isEmpty
-          ? const Center(child: Text('Нет заметок'))
-          : GridView.builder(
-              padding: const EdgeInsets.all(12),
-              itemCount: _notes.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-              ),
-              itemBuilder: (_, i) {
-                final n = _notes[i];
-                return GestureDetector(
-                  onTap: () => _edit(n),
-                  onLongPress: () => _askDelete(n),
-                  child: Card(
-                    elevation: 2,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              n.text.isEmpty ? 'Без текста' : n.text,
-                              maxLines: 8,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _fmt(n.updatedAt),
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                    ),
+      body: !store.loaded
+          ? const Center(child: CircularProgressIndicator())
+          : notes.isEmpty
+              ? const Center(child: Text('Нет заметок'))
+              : GridView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: notes.length,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
                   ),
-                );
-              },
-            ),
+                  itemBuilder: (_, i) {
+                    final n = notes[i];
+                    return GestureDetector(
+                      onTap: () => _edit(n),
+                      onLongPress: () => _askDelete(n),
+                      child: Card(
+                        elevation: 2,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  n.text.isEmpty ? 'Без текста' : n.text,
+                                  maxLines: 8,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                _fmt(n.updatedAt),
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: FloatingActionButton(
         onPressed: _create,
