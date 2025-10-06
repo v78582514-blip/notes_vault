@@ -530,11 +530,11 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: cols.clamp(1, 3),
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 3 / 2,
-      ),
+  crossAxisCount: cols.clamp(1, 3),
+  mainAxisSpacing: 12,
+  crossAxisSpacing: 12,
+  childAspectRatio: 1.30,
+),
       itemCount: notes.length,
       itemBuilder: (context, i) {
         final n = notes[i];
