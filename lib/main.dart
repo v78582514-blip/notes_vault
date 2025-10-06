@@ -1359,10 +1359,3 @@ Future<bool?> _verifyOldPassword(BuildContext context, Group g) async {
     ),
   );
 }
-'''
-
-zip_path = "/mnt/data/notes_vault_full.zip"
-with ZipFile(zip_path, "w") as z:
-    z.writestr("main.txt", full_code)
-
-zip_path
