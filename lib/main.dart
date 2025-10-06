@@ -891,26 +891,29 @@ class _NoteCard extends StatelessWidget {
   child: Padding(
     padding: const EdgeInsets.only(top: 2),
     child: Row(
-      children: [
-        Icon(Icons.access_time, size: 14, color: scheme.outline),
-        const SizedBox(width: 4),
-        Text(
-          _fmtTime(note.updatedAt),
-          style: Theme.of(context)
-              .textTheme
-              .labelSmall
-              ?.copyWith(color: scheme.outline),
-        ),
-        const Spacer(),
-        IconButton(
-          tooltip: 'Удалить',
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
-          icon: const Icon(Icons.delete_outline, size: 18),
-          onPressed: onDelete,
-        ),
-      ],
+  children: [
+    Icon(Icons.access_time, size: 16, color: scheme.outline),
+    const SizedBox(width: 6),
+    Text(
+      _fmtTime(note.updatedAt),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: Theme.of(context)
+          .textTheme
+          .labelSmall // чуть компактнее
+          ?.copyWith(color: scheme.outline),
     ),
+    const Spacer(),
+    IconButton(
+      tooltip: 'Удалить',
+      onPressed: onDelete,
+      icon: const Icon(Icons.delete_outline),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+      visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
+    ),
+  ],
+)
   ),
 ),
             ],
