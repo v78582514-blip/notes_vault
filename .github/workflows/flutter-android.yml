@@ -7,14 +7,10 @@ on:
       - "lib/**"
       - "pubspec.yaml"
       - "android/**"
-      - ".github/workflows/flutter-android.yml" # имя самого файла, чтобы триггерился на правки
+      - ".github/workflows/flutter-android.yml"
 
 permissions:
   contents: read
-
-concurrency:
-  group: android-apk-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   FLUTTER_CHANNEL: stable
@@ -22,20 +18,16 @@ env:
   JAVA_VERSION: "17"
 
 jobs:
-  debug-apk:
-    name: Debug APK
+  build:
+    name: Build Debug and Release APKs
     runs-on: ubuntu-latest
+    concurrency:
+      group: android-apk-${{ github.ref }}
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Ensure lib/main.dart exists
-        run: |
-          if [ ! -f "lib/main.dart" ]; then
-            echo "::error::File lib/main.dart not found. Put your app code into lib/main.dart."
-            exit 1
-          fi
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -63,90 +55,52 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Fetch packages
+      - name: Fetch dependencies
         run: flutter pub get
 
-      - name: Analyze (non-blocking)
+      - name: Analyze (ignore failures)
         run: flutter analyze || true
 
-      - name: Build debug APK
-        shell: bash
+      - name: Build Debug APK
         run: |
-          flutter --version
           flutter clean
           flutter build apk --debug
 
-      - name: Upload debug APK
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug.apk
           path: build/app/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-  release-apk:
-    name: Release APK (signed)
-    runs-on: ubuntu-latest
-    needs: debug-apk
-    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Ensure lib/main.dart exists
+      # --- RELEASE APK (with optional signing) ---
+      - name: Prepare keystore if secrets provided
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        shell: bash
         run: |
-          if [ ! -f "lib/main.dart" ]; then
-            echo "::error::File lib/main.dart not found. Put your app code into lib/main.dart."
-            exit 1
+          if [ -n "$KEYSTORE_B64" ]; then
+            mkdir -p android/app
+            echo "$KEYSTORE_B64" | base64 -d > android/app/upload-keystore.jks
+            cat <<EOF > android/key.properties
+storePassword=$KEYSTORE_PASS
+keyPassword=$KEY_PASS
+keyAlias=$KEY_ALIAS
+storeFile=upload-keystore.jks
+EOF
           fi
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: ${{ env.FLUTTER_CHANNEL }}
-          cache: true
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
-      - name: Fetch packages
-        run: flutter pub get
-
-      # Секреты нужно заранее создать в Settings → Secrets and variables → Actions:
-      # ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
-      - name: Prepare keystore (if provided)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        shell: bash
-        run: |
-          mkdir -p android/app
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
-          cat /dev/null > android/key.properties
-          printf "storePassword=%s\n" "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> android/key.properties
-          printf "keyPassword=%s\n"   "${{ secrets.ANDROID_KEY_PASSWORD }}"     >> android/key.properties
-          printf "keyAlias=%s\n"      "${{ secrets.ANDROID_KEY_ALIAS }}"        >> android/key.properties
-          printf "storeFile=upload-keystore.jks\n"                               >> android/key.properties
-
-      - name: Build release APK
-        shell: bash
+      - name: Build Release APK
         run: |
           flutter clean
           flutter build apk --release
 
-      - name: Upload release APK
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release.apk
