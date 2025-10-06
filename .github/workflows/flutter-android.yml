@@ -50,6 +50,12 @@ jobs:
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
 
+      # ⬇️ ВАЖНО: пересоздаём современную android-папку (v2 embedding)
+      - name: Regenerate Android folder (v2 embedding)
+        run: |
+          rm -rf android
+          flutter create . --platforms=android
+
       - name: Flutter doctor
         run: flutter doctor -v
 
@@ -104,6 +110,12 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
+
+      # ⬇️ Тот же шаг для release
+      - name: Regenerate Android folder (v2 embedding)
+        run: |
+          rm -rf android
+          flutter create . --platforms=android
 
       - name: Cache Gradle
         uses: actions/cache@v4
