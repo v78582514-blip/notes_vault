@@ -120,6 +120,11 @@ class Note {
   }
 }
 
+/// Вспомогательное расширение для сохранения цвета
+extension _ColorToArgb on Color {
+  int toARGB32() => (a << 24) | (r << 16) | (g << 8) | b;
+}
+
 /// =======================
 /// ХРАНИЛИЩЕ (SharedPreferences)
 /// =======================
@@ -356,8 +361,8 @@ class NotesHome extends StatefulWidget {
 
 class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
   String? _currentGroupId; // выбранная группа (null = «Все» / без группы)
-  String? _dragNoteId;     // id перетаскиваемой заметки
-  bool _dragging = false;  // показывать ли зону удаления
+  String? _dragNoteId; // id перетаскиваемой заметки
+  bool _dragging = false; // показывать ли зону удаления
 
   VaultStore get store => widget.store;
 
@@ -403,19 +408,15 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
               ),
             ],
           ),
-
           body: Stack(
             children: [
               Column(
                 children: [
-                  // Полоса групп сверху (горизонтальная) + таргеты для дропа
                   _groupsStrip(context, groups),
-
                   const SizedBox(height: 6),
-
-                  // Заголовок секции заметок
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     child: Row(
                       children: [
                         Text(
@@ -425,32 +426,26 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
                         const Spacer(),
                         IconButton(
                           tooltip: 'Показать без группы',
-                          onPressed: () => setState(() => _currentGroupId = null),
+                          onPressed: () =>
+                              setState(() => _currentGroupId = null),
                           icon: const Icon(Icons.folder_open),
                         ),
                       ],
                     ),
                   ),
-
-                  // Сетка заметок
-                  Expanded(
-                    child: _notesGrid(context, notes),
-                  ),
+                  Expanded(child: _notesGrid(context, notes)),
                 ],
               ),
-
-              // Зона удаления (появляется, когда идет drag)
               if (_dragging) _deleteDropZone(context),
             ],
           ),
-
           floatingActionButton: _fabColumn(context),
         );
       },
     );
   }
 
-  /// Кнопки «добавить заметку / добавить группу»
+  /// FAB: добавить заметку / группу
   Widget _fabColumn(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -458,25 +453,21 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
         FloatingActionButton.small(
           heroTag: 'add_group',
           tooltip: 'Добавить группу',
-          onPressed: () async {
-            await _editGroup(context);
-          },
+          onPressed: () async => _editGroup(context),
           child: const Icon(Icons.create_new_folder),
         ),
         const SizedBox(height: 12),
         FloatingActionButton(
           heroTag: 'add_note',
           tooltip: 'Добавить заметку',
-          onPressed: () async {
-            await _editNote(context);
-          },
+          onPressed: () async => _editNote(context),
           child: const Icon(Icons.add),
         ),
       ],
     );
   }
 
-  /// Горизонтальный список групп (каждая — DragTarget<String>)
+  /// Полоса групп (каждая — DragTarget<String>)
   Widget _groupsStrip(BuildContext context, List<Group> groups) {
     return SizedBox(
       height: 128,
@@ -491,7 +482,6 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
           return DragTarget<String>(
             onWillAcceptWithDetails: (_) => true,
             onAcceptWithDetails: (details) async {
-              // если группа приватная — спросим пароль перед переносом
               if (g.locked) {
                 final ok = await _askPassword(g);
                 if (!ok) return;
@@ -524,27 +514,27 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
     );
   }
 
-  /// Сетка заметок; каждая карточка — Draggable<String> с note.id
+  /// Сетка заметок (каждая — Draggable<String>)
   Widget _notesGrid(BuildContext context, List<Note> notes) {
     final size = MediaQuery.of(context).size;
-final isPortrait =
-    MediaQuery.of(context).orientation == Orientation.portrait;
+    final isPortrait =
+        MediaQuery.of(context).orientation == Orientation.portrait;
+    // 2 колонки на телефонах/портрете, 3 — на широких
+    final cols = (size.width < 700 || isPortrait) ? 2 : 3;
 
-// 2 колонки на телефонах/портрете, 3 — на широких
-final cols = (size.width < 700 || isPortrait) ? 2 : 3;
-
-return GridView.builder(
-  padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
-  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-  crossAxisCount: cols,
-  mainAxisSpacing: 12,
-  crossAxisSpacing: 14, // оставляем чуть больше зазор
-  childAspectRatio: 1.32, // возвращаем ближе к 1.3
-),
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: cols,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 14,
+        childAspectRatio: 1.32,
+      ),
       itemCount: notes.length,
       itemBuilder: (context, i) {
         final n = notes[i];
-        final c = n.color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
+        final c = n.color ??
+            Theme.of(context).colorScheme.surfaceContainerHighest;
 
         return LongPressDraggable<String>(
           data: n.id,
@@ -569,7 +559,7 @@ return GridView.builder(
     );
   }
 
-  /// Полупрозрачная зона удаления (по центру снизу)
+  /// Зона удаления (DragTarget снизу)
   Widget _deleteDropZone(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Align(
@@ -604,7 +594,7 @@ return GridView.builder(
     );
   }
 
-  /// Меню группы (переименовать/цвет/приватность/удалить)
+  /// Меню группы
   Future<void> _groupMenu(BuildContext context, Group g) async {
     final action = await _choose(context, [
       'Открыть',
@@ -686,7 +676,7 @@ return GridView.builder(
     if (ok) await store.deleteNote(n.id);
   }
 
-  /// ========= Вспомогательные модалки (реализация в Части 2) =========
+  /// ========= Вспомогательные модалки =========
 
   Future<bool> _askConfirm(BuildContext context,
       {required String title, required String message}) async {
@@ -798,7 +788,6 @@ class _GroupTile extends StatelessWidget {
 
     if (!blurred) return base;
 
-    // Блюрим + лёгкий затеняющий слой. Добавим «пиратский» знак для приватных.
     return ClipRRect(
       borderRadius: BorderRadius.circular(22),
       child: Stack(
@@ -844,7 +833,7 @@ class _NoteCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(14),
         child: Padding(
-          padding: const EdgeInsets.all(12), // было 14
+          padding: const EdgeInsets.fromLTRB(12, 12, 10, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -857,65 +846,53 @@ class _NoteCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-
               // Заголовок
               Text(
                 note.title.isEmpty ? 'Без заголовка' : note.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontSize: 15), // чуть меньше
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-
-              const SizedBox(height: 4),
-
-              // Текст заметки
+              const SizedBox(height: 6),
+              // Текст
               Expanded(
-  child: Text(
-    note.text,
-    maxLines: 3,
-    overflow: TextOverflow.ellipsis,
-    style: Theme.of(context)
-        .textTheme
-        .bodyMedium
-        ?.copyWith(fontSize: 14),
-  ),
-),
-              const SizedBox(height: 4),
-
-              // Низ карточки
-              SizedBox(
-  height: 24,
-  child: Padding(
-    padding: const EdgeInsets.only(top: 2),
-    child: Row(
-  children: [
-    Icon(Icons.access_time, size: 16, color: scheme.outline),
-    const SizedBox(width: 6),
-    Text(
-      _fmtTime(note.updatedAt),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: Theme.of(context)
-          .textTheme
-          .labelSmall // чуть компактнее
-          ?.copyWith(color: scheme.outline),
-    ),
-    const Spacer(),
-    IconButton(
-      tooltip: 'Удалить',
-      onPressed: onDelete,
-      icon: const Icon(Icons.delete_outline),
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-      visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
-    ),
-  ],
-)
-  ),
-),
+                child: Text(
+                  note.text,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: true,
+                ),
+              ),
+              const SizedBox(height: 6),
+              // Нижняя строка
+              Row(
+                children: [
+                  const Icon(Icons.access_time, size: 14),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      _fmtTime(note.updatedAt),
+                      maxLines: 1,
+                      overflow: TextOverflow.fade,
+                      softWrap: false,
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelMedium
+                          ?.copyWith(color: scheme.outline),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    tooltip: 'Удалить',
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints.tightFor(width: 32, height: 32),
+                    iconSize: 18,
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -1109,6 +1086,7 @@ class _GroupEditorDialogState extends State<_GroupEditorDialog> {
     final id = widget.group?.id ?? 'g_${DateTime.now().microsecondsSinceEpoch}';
 
     return AlertDialog(
+      scrollable: true,
       title: Text(isNew ? 'Новая группа' : 'Редактирование группы'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1133,7 +1111,9 @@ class _GroupEditorDialogState extends State<_GroupEditorDialog> {
           onPressed: () {
             final g = Group(
               id: id,
-              title: _title.text.trim().isEmpty ? 'Без названия' : _title.text.trim(),
+              title: _title.text.trim().isEmpty
+                  ? 'Без названия'
+                  : _title.text.trim(),
               colorHex: _color?.toARGB32(),
               locked: widget.group?.locked ?? false,
               passwordHash: widget.group?.passwordHash,
@@ -1177,14 +1157,13 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
   void _toggleNumbering() {
     setState(() => _numbering = !_numbering);
 
-    // Если включили нумерацию и курсор стоит в пустой строке — вставим "1. "
+    // Если включили нумерацию и курсор в пустой строке — вставим "1. "
     if (_numbering) {
       final v = _body.value;
       final text = v.text;
       final sel = v.selection;
       final cursor = sel.isValid ? sel.start : text.length;
 
-      // начало/конец текущей строки
       final lineStart = text.lastIndexOf('\n', cursor - 1) + 1;
       final lineEndN = text.indexOf('\n', cursor);
       final lineEnd = lineEndN == -1 ? text.length : lineEndN;
@@ -1203,6 +1182,8 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       titlePadding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
       contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
       actionsPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -1212,9 +1193,14 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
             child: Text(widget.note == null ? 'Новая заметка' : 'Редактирование'),
           ),
           IconButton(
-            tooltip: 'Нумерация',
+            tooltip: _numbering ? 'Нумерация: включена' : 'Нумерация: выключена',
             onPressed: _toggleNumbering,
-            icon: Icon(_numbering ? Icons.format_list_numbered : Icons.format_list_numbered_outlined),
+            icon: Icon(
+              Icons.format_list_numbered,
+              color: _numbering
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
           IconButton(
             tooltip: 'Цвет',
@@ -1229,20 +1215,33 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
           ),
         ],
       ),
-      content: SizedBox(
-        width: 520,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 540),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: _title,
+              textInputAction: TextInputAction.next,
               decoration: const InputDecoration(labelText: 'Заголовок'),
             ),
             const SizedBox(height: 12),
+
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilterChip(
+                label: Text(_groupId == null ? 'Без группы' : 'Сбросить группу'),
+                selected: _groupId == null,
+                onSelected: (_) => setState(() => _groupId = null),
+              ),
+            ),
+            const SizedBox(height: 8),
+
             TextField(
               controller: _body,
               minLines: 8,
               maxLines: 16,
+              keyboardType: TextInputType.multiline,
               inputFormatters: [
                 _NumberingFormatter(() => _numbering),
               ],
@@ -1370,7 +1369,8 @@ class _ColorPicker extends StatelessWidget {
 }
 
 class _ColorDot extends StatelessWidget {
-  const _ColorDot({required this.color, required this.selected, required this.onTap});
+  const _ColorDot(
+      {required this.color, required this.selected, required this.onTap});
   final Color? color;
   final bool selected;
   final VoidCallback onTap;
@@ -1405,7 +1405,8 @@ class _ColorDot extends StatelessWidget {
         decoration: BoxDecoration(
           color: color ?? Colors.transparent,
           shape: BoxShape.circle,
-          border: color == null ? Border.all(color: Colors.grey, width: 1.2) : null,
+          border:
+              color == null ? Border.all(color: Colors.grey, width: 1.2) : null,
         ),
       );
 }
@@ -1429,7 +1430,8 @@ class _NumberingFormatter extends TextInputFormatter {
     final newText = newValue.text;
 
     // ENTER → добавить "<n>. "
-    final enteredNewLine = newText.length > oldText.length && newText.endsWith('\n');
+    final enteredNewLine =
+        newText.length > oldText.length && newText.endsWith('\n');
     if (enteredNewLine) {
       final cursor = newValue.selection.end;
       final before = newText.substring(0, cursor);
@@ -1438,39 +1440,4 @@ class _NumberingFormatter extends TextInputFormatter {
       int nextNum = 1;
       if (lines.length >= 2) {
         final prev = lines[lines.length - 2];
-        final m = RegExp(r'^\s*(\d+)\.\s').firstMatch(prev);
-        if (m != null) {
-          nextNum = int.tryParse(m.group(1) ?? '0')! + 1;
-        }
-      }
-
-      final insert = '$nextNum. ';
-      final updated = newText.replaceRange(cursor, cursor, insert);
-      return newValue.copyWith(
-        text: updated,
-        selection: TextSelection.collapsed(offset: cursor + insert.length),
-      );
-    }
-
-    // Удаление префикса "n. " одним бэкспейсом
-    final removed = oldText.length > newText.length;
-    if (removed) {
-      final cur = newValue.selection.end;
-      final start = newText.lastIndexOf('\n', cur - 1) + 1;
-      final end = newText.indexOf('\n', start);
-      final line = newText.substring(start, end == -1 ? newText.length : end);
-
-      if (RegExp(r'^\s*\d+\.\s?$').hasMatch(line)) {
-        final prefix = RegExp(r'^\s*\d+\.\s?').firstMatch(line)!.group(0)!;
-        final updated = newText.replaceRange(start, start + prefix.length, '');
-        final shift = prefix.length;
-        return newValue.copyWith(
-          text: updated,
-          selection: TextSelection.collapsed(offset: cur - shift),
-        );
-      }
-    }
-
-    return newValue;
-  }
-}
+        final m = RegExp(r'^
