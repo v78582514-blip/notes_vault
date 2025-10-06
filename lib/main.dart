@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'dart:ui';
+import 'dart:io'; // NEW
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:share_plus/share_plus.dart'; // NEW
+import 'package:path_provider/path_provider.dart'; // NEW
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -557,6 +560,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
             note: n,
             onTap: () => _editNote(context, n),
             onDelete: () => _confirmDeleteNote(context, n),
+            onShare: () => _shareNote(context, n), // NEW
           ),
         );
       },
@@ -725,6 +729,104 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
       ),
     );
   }
+
+  /// ====== ФОРМАТИРОВАНИЕ И ШАРИНГ ЗАМЕТКИ (NEW) ======
+
+  String _fmtNoteAsPlain(Note n) {
+    final title = n.title.trim().isEmpty ? 'Без заголовка' : n.title.trim();
+    final time = _fmtTime(n.updatedAt);
+    return '$title\n$time\n\n${n.text}';
+  }
+
+  String _fmtNoteAsMarkdown(Note n) {
+    final title = n.title.trim().isEmpty ? 'Без заголовка' : n.title.trim();
+    final time = _fmtTime(n.updatedAt);
+    // Текст уже может содержать списки/нумерацию — передаём как есть.
+    return '# $title\n\n*Обновлено: $time*\n\n${n.text}';
+  }
+
+  String _fmtNoteAsHtml(Note n) {
+    final title = n.title.trim().isEmpty ? 'Без заголовка' : n.title.trim();
+    final time = _fmtTime(n.updatedAt);
+    final escaped = _escapeHtml(n.text).replaceAll('\n', '<br/>');
+    return '''
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8"/>
+    <title>${_escapeHtml(title)}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <style>
+      body { font-family: -apple-system, Roboto, Segoe UI, Arial, sans-serif; padding: 16px; line-height: 1.45; }
+      h1 { margin: 0 0 8px; font-size: 22px; }
+      .time { color: #777; margin: 0 0 16px; font-size: 12px; }
+      pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    </style>
+  </head>
+  <body>
+    <h1>${_escapeHtml(title)}</h1>
+    <div class="time">Обновлено: ${_escapeHtml(time)}</div>
+    <div>${escaped}</div>
+  </body>
+</html>''';
+  }
+
+  String _escapeHtml(String s) => s
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+
+  Future<void> _shareNote(BuildContext context, Note n) async {
+    final choice = await _choose(context, [
+      'Как текст',
+      'Как Markdown (.md)',
+      'Как HTML (.html)',
+    ]);
+    if (choice == null) return;
+
+    try {
+      switch (choice) {
+        case 'Как текст':
+          await Share.share(
+            _fmtNoteAsPlain(n),
+            subject: n.title.isEmpty ? 'Заметка' : n.title,
+          );
+          break;
+
+        case 'Как Markdown (.md)':
+          {
+            final dir = await getTemporaryDirectory();
+            final file = File('${dir.path}/note_${n.id}.md');
+            await file.writeAsString(_fmtNoteAsMarkdown(n), encoding: utf8);
+            await Share.shareXFiles(
+              [XFile(file.path, mimeType: 'text/markdown')],
+              subject: n.title.isEmpty ? 'Заметка' : n.title,
+              text: 'См. прикрепленный файл Markdown',
+            );
+          }
+          break;
+
+        case 'Как HTML (.html)':
+          {
+            final dir = await getTemporaryDirectory();
+            final file = File('${dir.path}/note_${n.id}.html');
+            await file.writeAsString(_fmtNoteAsHtml(n), encoding: utf8);
+            await Share.shareXFiles(
+              [XFile(file.path, mimeType: 'text/html')],
+              subject: n.title.isEmpty ? 'Заметка' : n.title,
+              text: 'См. прикрепленный HTML-файл',
+            );
+          }
+          break;
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось поделиться: $e')),
+        );
+      }
+    }
+  }
 }
 
 /// Вспомогательное форматирование времени
@@ -819,11 +921,13 @@ class _NoteCard extends StatelessWidget {
     required this.note,
     required this.onTap,
     required this.onDelete,
+    required this.onShare, // NEW
   });
 
   final Note note;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+  final VoidCallback onShare; // NEW
 
   @override
   Widget build(BuildContext context) {
@@ -887,6 +991,16 @@ class _NoteCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   IconButton(
+                    tooltip: 'Поделиться', // NEW
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints.tightFor(width: 32, height: 32),
+                    iconSize: 18,
+                    onPressed: onShare,
+                    icon: const Icon(Icons.ios_share),
+                  ),
+                  const SizedBox(width: 2),
+                  IconButton(
                     tooltip: 'Удалить',
                     padding: EdgeInsets.zero,
                     constraints:
@@ -904,7 +1018,6 @@ class _NoteCard extends StatelessWidget {
     );
   }
 }
-
 class _NoteGhostCard extends StatelessWidget {
   const _NoteGhostCard({this.color});
   final Color? color;
@@ -1035,8 +1148,8 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
             decoration: InputDecoration(
               labelText: 'Повторите пароль',
               suffixIcon: IconButton(
-                onPressed: () => setState(() => _ob2 = !_ob2),
-                icon: Icon(_ob2 ? Icons.visibility_off : Icons.visibility),
+                onPressed: () => setState(() => _об2 = !_об2),
+                icon: Icon(_об2 ? Icons.visibility_off : Icons.visibility),
               ),
             ),
           ),
@@ -1049,7 +1162,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
         ),
         FilledButton(
           onPressed: () {
-            final a = _p1.text.trim(), b = _p2.text.trim();
+            final a = _п1.text.trim(), b = _п2.text.trim();
             if (a.isEmpty || a != b) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Пароли не совпадают')),
@@ -1444,7 +1557,6 @@ class _NumberingFormatter extends TextInputFormatter {
       int nextNum = 1;
       if (lines.length >= 2) {
         final prev = lines[lines.length - 2];
-        // ВАЖНО: строка должна быть ОДНОЙ строкой, без переносов!
         final m = RegExp(r'^\s*(\d+)\.\s').firstMatch(prev);
         if (m != null) {
           nextNum = int.tryParse(m.group(1) ?? '0')! + 1;
