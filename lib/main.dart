@@ -866,18 +866,17 @@ class _NoteCard extends StatelessWidget {
               const SizedBox(height: 4),
 
               // Текст заметки
-              Flexible(
-                child: Text(
-                  note.text,
-                  maxLines: 4, // было 5
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(fontSize: 14),
-                ),
-              ),
-
+              Expanded(
+  child: Text(
+    note.text,
+    maxLines: 3,
+    overflow: TextOverflow.ellipsis,
+    style: Theme.of(context)
+        .textTheme
+        .bodyMedium
+        ?.copyWith(fontSize: 14),
+  ),
+),
               const SizedBox(height: 4),
 
               // Низ карточки
