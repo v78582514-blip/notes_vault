@@ -1,108 +1,51 @@
-name: Build Android APK (Flutter)
+name: Build Debug APK (Flutter)
 
 on:
-  workflow_dispatch:
   push:
     paths:
       - "lib/**"
       - "pubspec.yaml"
       - "android/**"
       - ".github/workflows/flutter-android.yml"
-
-permissions:
-  contents: read
-
-env:
-  FLUTTER_CHANNEL: stable
-  FLUTTER_VERSION: "3.35.5"
-  JAVA_VERSION: "17"
+  workflow_dispatch:
 
 jobs:
   build:
-    name: Build Debug and Release APKs
     runs-on: ubuntu-latest
-    concurrency:
-      group: android-apk-${{ github.ref }}
-      cancel-in-progress: true
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Java
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
+          distribution: "temurin"
+          java-version: "17"
 
-      - name: Setup Flutter
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: "3.35.5"
+          channel: "stable"
           cache: true
 
       - name: Flutter doctor
         run: flutter doctor -v
 
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
-      - name: Fetch dependencies
+      - name: Get dependencies
         run: flutter pub get
 
-      - name: Analyze (ignore failures)
+      - name: Analyze (optional)
         run: flutter analyze || true
 
-      - name: Build Debug APK
+      - name: Build debug APK
         run: |
           flutter clean
           flutter build apk --debug
 
-      - name: Upload Debug APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug.apk
           path: build/app/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-
-      # --- RELEASE APK (with optional signing) ---
-      - name: Prepare keystore if secrets provided
-        if: env.HAS_KEYSTORE == 'true'
-        env:
-          HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-        shell: bash
-        run: |
-          if [ -n "$KEYSTORE_B64" ]; then
-            mkdir -p android/app
-            echo "$KEYSTORE_B64" | base64 -d > android/app/upload-keystore.jks
-            cat <<EOF > android/key.properties
-storePassword=$KEYSTORE_PASS
-keyPassword=$KEY_PASS
-keyAlias=$KEY_ALIAS
-storeFile=upload-keystore.jks
-EOF
-          fi
-
-      - name: Build Release APK
-        run: |
-          flutter clean
-          flutter build apk --release
-
-      - name: Upload Release APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release.apk
-          path: build/app/outputs/apk/release/app-release.apk
-          if-no-files-found: error
