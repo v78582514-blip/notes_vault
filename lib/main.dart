@@ -536,11 +536,11 @@ final cols = (size.width < 700 || isPortrait) ? 2 : 3;
 return GridView.builder(
   padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-    crossAxisCount: cols,
-    mainAxisSpacing: 12,
-    crossAxisSpacing: 12,
-    childAspectRatio: 1.35, // чуть шире карточки
-  ),
+  crossAxisCount: cols,
+  mainAxisSpacing: 12,
+  crossAxisSpacing: 14, // ← чуть больше, чтобы не упирались
+  childAspectRatio: 1.38, // ← чуть шире карточка по соотношению
+),
       itemCount: notes.length,
       itemBuilder: (context, i) {
         final n = notes[i];
