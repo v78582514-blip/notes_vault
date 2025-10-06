@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:math';
+import 'dart:ui' as ui; // blur
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +9,8 @@ void main() {
   runApp(const NotesVaultApp());
 }
 
+/* ============================ APP / THEME ============================ */
+
 class NotesVaultApp extends StatefulWidget {
   const NotesVaultApp({super.key});
   @override
@@ -16,39 +18,39 @@ class NotesVaultApp extends StatefulWidget {
 }
 
 class _NotesVaultAppState extends State<NotesVaultApp> {
-  final vault = VaultStore();
+  final store = VaultStore();
 
   @override
   void initState() {
     super.initState();
-    vault.addListener(() => setState(() {}));
-    vault.load();
+    store.addListener(() => setState(() {}));
+    store.load();
   }
 
   @override
   void dispose() {
-    vault.dispose();
+    store.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = ColorScheme.fromSeed(
-      seedColor: Colors.deepPurple,
-      brightness: vault.isDark ? Brightness.dark : Brightness.light,
+      seedColor: Colors.indigo,
+      brightness: store.isDark ? Brightness.dark : Brightness.light,
     );
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Notes Vault',
-      themeMode: vault.isDark ? ThemeMode.dark : ThemeMode.light,
+      themeMode: store.isDark ? ThemeMode.dark : ThemeMode.light,
       theme: ThemeData(useMaterial3: true, colorScheme: scheme),
       darkTheme: ThemeData(useMaterial3: true, colorScheme: scheme),
-      home: NotesHome(store: vault),
+      home: NotesHome(store: store),
     );
   }
 }
 
-/* ============================ MODELS & STORE ============================ */
+/* ============================ MODELS ============================ */
 
 class NoteItem {
   String id;
@@ -100,8 +102,9 @@ class GroupItem {
   String id;
   String title;
   int? colorHex;
-  String? pass; // простая строка; для демо. (для прод — хранить hash+salt)
+  String? pass; // для демо: хранится как plain; на проде — хэш+salt
   int updatedAt;
+
   GroupItem({
     required this.id,
     this.title = '',
@@ -134,6 +137,8 @@ class GroupItem {
       );
 }
 
+/* ============================ STORE ============================ */
+
 class VaultStore extends ChangeNotifier {
   static const _kNotes = 'nv_notes_v1';
   static const _kGroups = 'nv_groups_v1';
@@ -154,9 +159,8 @@ class VaultStore extends ChangeNotifier {
     final p = await SharedPreferences.getInstance();
     _isDark = p.getBool(_kTheme) ?? true;
 
-    final nRaw = p.getString(_kNotes);
     final gRaw = p.getString(_kGroups);
-
+    final nRaw = p.getString(_kNotes);
     if (gRaw != null) {
       _groups
         ..clear()
@@ -170,9 +174,8 @@ class VaultStore extends ChangeNotifier {
             .map(NoteItem.fromJson));
     }
 
-    // Тестовые заметки — один раз
-    final firstRunDone = p.getBool(_kFirstRun) ?? false;
-    if (!firstRunDone) {
+    final firstRun = p.getBool(_kFirstRun) ?? false;
+    if (!firstRun) {
       _installFixtures();
       await p.setBool(_kFirstRun, true);
       await _save();
@@ -198,10 +201,8 @@ class VaultStore extends ChangeNotifier {
 
   Future<void> _save() async {
     final p = await SharedPreferences.getInstance();
-    await p.setString(_kNotes,
-        jsonEncode(_notes.map((e) => e.toJson()).toList(growable: false)));
-    await p.setString(_kGroups,
-        jsonEncode(_groups.map((e) => e.toJson()).toList(growable: false)));
+    await p.setString(_kNotes, jsonEncode(_notes.map((e) => e.toJson()).toList()));
+    await p.setString(_kGroups, jsonEncode(_groups.map((e) => e.toJson()).toList()));
     await p.setBool(_kTheme, _isDark);
   }
 
@@ -215,19 +216,13 @@ class VaultStore extends ChangeNotifier {
   Future<void> upsertNote(NoteItem n) async {
     final i = _notes.indexWhere((x) => x.id == n.id);
     n.updatedAt = DateTime.now().millisecondsSinceEpoch;
-    if (i == -1) {
-      _notes.add(n);
-    } else {
-      _notes[i] = n;
-    }
-    await _save();
-    notifyListeners();
+    if (i == -1) _notes.add(n); else _notes[i] = n;
+    await _save(); notifyListeners();
   }
 
   Future<void> deleteNote(String id) async {
     _notes.removeWhere((e) => e.id == id);
-    await _save();
-    notifyListeners();
+    await _save(); notifyListeners();
   }
 
   Future<void> moveNoteToGroup(String id, String? groupId) async {
@@ -235,42 +230,33 @@ class VaultStore extends ChangeNotifier {
     if (i == -1) return;
     _notes[i].groupId = groupId;
     _notes[i].updatedAt = DateTime.now().millisecondsSinceEpoch;
-    await _save();
-    notifyListeners();
+    await _save(); notifyListeners();
   }
 
   /* Groups */
   Future<void> upsertGroup(GroupItem g) async {
     final i = _groups.indexWhere((x) => x.id == g.id);
     g.updatedAt = DateTime.now().millisecondsSinceEpoch;
-    if (i == -1) {
-      _groups.add(g);
-    } else {
-      _groups[i] = g;
-    }
-    await _save();
-    notifyListeners();
+    if (i == -1) _groups.add(g); else _groups[i] = g;
+    await _save(); notifyListeners();
   }
 
   Future<bool> verifyPassword(GroupItem g, String input) async {
     return (g.pass ?? '') == input;
   }
 
-  /// Удаление группы вместе с её заметками (как просили).
   Future<void> deleteGroup(String id) async {
     _groups.removeWhere((e) => e.id == id);
-    _notes.removeWhere((n) => n.groupId == id);
-    await _save();
-    notifyListeners();
+    _notes.removeWhere((n) => n.groupId == id); // удаляем и заметки этой группы
+    await _save(); notifyListeners();
   }
 }
 
-/* =============================== HOME =============================== */
+/* ============================ HOME ============================ */
 
 class NotesHome extends StatefulWidget {
   final VaultStore store;
   const NotesHome({super.key, required this.store});
-
   @override
   State<NotesHome> createState() => _NotesHomeState();
 }
@@ -287,7 +273,7 @@ class _NotesHomeState extends State<NotesHome> {
     ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
   List<GroupItem> get _rootGroups => store.groups
-      .where((g) => _openGroupId == null) // группы только в корне
+      .where((g) => _openGroupId == null)
       .toList()
     ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
@@ -321,11 +307,7 @@ class _NotesHomeState extends State<NotesHome> {
       context: context,
       builder: (_) => AlertDialog(
         title: Text('Группа «${g.title.isEmpty ? 'Без названия' : g.title}»'),
-        content: TextField(
-          controller: ctrl,
-          decoration: const InputDecoration(labelText: 'Пароль'),
-          obscureText: true,
-        ),
+        content: TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'Пароль'), obscureText: true),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('ОК')),
@@ -334,13 +316,10 @@ class _NotesHomeState extends State<NotesHome> {
     );
     if (ok != true) return false;
     final passOk = await store.verifyPassword(g, ctrl.text);
-    if (!passOk) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Неверный пароль')));
-      }
-      return false;
+    if (!passOk && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Неверный пароль')));
     }
-    return true;
+    return passOk;
   }
 
   Future<void> _confirmDeleteNote(NoteItem n) async {
@@ -382,10 +361,7 @@ class _NotesHomeState extends State<NotesHome> {
       appBar: AppBar(
         title: Text(_openGroupId == null ? 'Notes Vault' : 'Группа'),
         leading: _openGroupId != null
-            ? IconButton(
-                onPressed: () => setState(() => _openGroupId = null),
-                icon: const Icon(Icons.arrow_back),
-              )
+            ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => setState(() => _openGroupId = null))
             : null,
         actions: [
           IconButton(
@@ -429,11 +405,7 @@ class _NotesHomeState extends State<NotesHome> {
                         SliverGrid.builder(
                           itemCount: groups.length,
                           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: 12,
-                            crossAxisSpacing: 12,
-                            childAspectRatio: 1.1,
-                          ),
+                            crossAxisCount: 2, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 1.1),
                           itemBuilder: (_, i) {
                             final g = groups[i];
                             return _GroupTile(
@@ -441,7 +413,6 @@ class _NotesHomeState extends State<NotesHome> {
                               onOpen: () => _openGroup(g),
                               onEdit: () => _openGroupEditor(group: g),
                               onDelete: () => _confirmDeleteGroup(g),
-                              // DragTarget: сюда можно бросить заметку
                               child: DragTarget<NoteItem>(
                                 onWillAccept: (n) => n != null,
                                 onAccept: (n) => store.moveNoteToGroup(n.id, g.id),
@@ -460,11 +431,7 @@ class _NotesHomeState extends State<NotesHome> {
                       SliverGrid.builder(
                         itemCount: notes.length,
                         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 12,
-                          crossAxisSpacing: 12,
-                          childAspectRatio: 1.1,
-                        ),
+                          crossAxisCount: 2, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 1.1),
                         itemBuilder: (_, i) {
                           final n = notes[i];
                           return LongPressDraggable<NoteItem>(
@@ -489,10 +456,9 @@ class _NotesHomeState extends State<NotesHome> {
                     ],
                   ),
                 ),
-                // Корзина в правом нижнем углу — DragTarget
+                // Корзина (DragTarget) — для удаления заметок переносом
                 Positioned(
-                  right: 16,
-                  bottom: 16,
+                  right: 16, bottom: 16,
                   child: DragTarget<NoteItem>(
                     onWillAccept: (_) => true,
                     onAccept: (n) => _confirmDeleteNote(n),
@@ -519,28 +485,14 @@ class _NotesHomeState extends State<NotesHome> {
   }
 }
 
-/* ============================ WIDGETS ============================ */
-
-class _GroupIndicatorBar extends StatelessWidget implements PreferredSizeWidget {
-  final GroupItem group;
-  const _GroupIndicatorBar({required this.group, super.key});
-
-  @override
-  Size get preferredSize => const Size.fromHeight(4);
-
-  @override
-  Widget build(BuildContext context) {
-    final color = group.colorHex != null ? Color(group.colorHex!) : Theme.of(context).colorScheme.primary;
-    return Container(height: 4, color: color);
-  }
-}
+/* ============================ GROUP TILE (BLUR) ============================ */
 
 class _GroupTile extends StatelessWidget {
   final GroupItem group;
   final VoidCallback onOpen;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
-  final Widget child; // для DragTarget-оверлея
+  final Widget child; // DragTarget overlay
 
   const _GroupTile({
     super.key,
@@ -554,6 +506,31 @@ class _GroupTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = group.colorHex != null ? Color(group.colorHex!) : null;
+    final locked = group.isPrivate;
+
+    final titleLine = Row(children: [
+      Expanded(
+        child: Text(
+          group.title.isEmpty ? 'Без названия' : group.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      ),
+      if (locked) const Padding(padding: EdgeInsets.only(left: 6), child: Icon(Icons.lock, size: 16)),
+    ]);
+
+    final metaLine = Text('Обновлено: ${_fmtDate(group.updatedAt)}',
+        style: Theme.of(context).textTheme.bodySmall);
+
+    final innerContent = Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        titleLine,
+        const Spacer(),
+        metaLine,
+      ]),
+    );
 
     return Stack(
       children: [
@@ -565,41 +542,38 @@ class _GroupTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(height: 6, color: color ?? Colors.transparent),
+                Container(height: 6, color: color ?? Colors.transparent), // цвет всегда виден
                 Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(children: [
-                          Expanded(
-                            child: Text(
-                              group.title.isEmpty ? 'Без названия' : group.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontWeight: FontWeight.w600),
+                  child: locked
+                      ? Stack(fit: StackFit.expand, children: [
+                          // контент под блюром
+                          ImageFiltered(
+                            imageFilter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                            child: innerContent,
+                          ),
+                          // лёгкое затемнение для 100% нечитаемости
+                          Container(color: Theme.of(context).colorScheme.surface.withOpacity(0.35)),
+                          // центр. замок
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.surface.withOpacity(0.6),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(Icons.lock, size: 28),
                             ),
                           ),
-                          if (group.isPrivate) const Padding(padding: EdgeInsets.only(left: 6), child: Icon(Icons.lock, size: 16)),
-                        ]),
-                        const Spacer(),
-                        Text(
-                          'Обновлено: ${_fmtDate(group.updatedAt)}',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
+                        ])
+                      : innerContent,
                 ),
               ],
             ),
           ),
         ),
-        // Кнопка меню вынесена в левый верхний угол, чтобы индикаторы не перекрывали
+        // Меню ⋮ — всегда поверх
         Positioned(
-          left: 4,
-          top: 4,
+          left: 4, top: 4,
           child: Material(
             color: Colors.transparent,
             child: PopupMenuButton<String>(
@@ -618,12 +592,14 @@ class _GroupTile extends StatelessWidget {
             ),
           ),
         ),
-        // Оверлей для приёма перетаскивания заметок
+        // DragTarget overlay
         Positioned.fill(child: IgnorePointer(child: child)),
       ],
     );
   }
 }
+
+/* ============================ NOTE TILE ============================ */
 
 class _NoteTile extends StatelessWidget {
   final NoteItem note;
@@ -638,76 +614,50 @@ class _NoteTile extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onOpen,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(height: 6, color: color ?? Colors.transparent),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(
-                    note.title.isEmpty ? 'Без названия' : note.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: Text(
-                      note.text,
-                      maxLines: 5,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(Icons.access_time, size: 14, color: Theme.of(context).textTheme.bodySmall?.color),
-                      const SizedBox(width: 4),
-                      Text(_fmtDate(note.updatedAt), style: Theme.of(context).textTheme.bodySmall),
-                      const Spacer(),
-                      IconButton(
-                        tooltip: 'Удалить',
-                        icon: const Icon(Icons.delete_outline),
-                        onPressed: onDelete,
-                      )
-                    ],
-                  ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Container(height: 6, color: color ?? Colors.transparent),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(note.title.isEmpty ? 'Без названия' : note.title,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+                const SizedBox(height: 8),
+                Expanded(child: Text(note.text, maxLines: 5, overflow: TextOverflow.ellipsis)),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Icon(Icons.access_time, size: 14, color: Theme.of(context).textTheme.bodySmall?.color),
+                  const SizedBox(width: 4),
+                  Text(_fmtDate(note.updatedAt), style: Theme.of(context).textTheme.bodySmall),
+                  const Spacer(),
+                  IconButton(tooltip: 'Удалить', icon: const Icon(Icons.delete_outline), onPressed: onDelete),
                 ]),
-              ),
+              ]),
             ),
-          ],
-        ),
+          ),
+        ]),
       ),
     );
   }
 }
 
+/* ============================ DRAG FEEDBACK ============================ */
+
 class _GhostCard extends StatelessWidget {
   final String? title;
   final Color? color;
   const _GhostCard({this.title, this.color});
-
   @override
   Widget build(BuildContext context) {
     return Opacity(
       opacity: 0.7,
       child: Card(
         child: SizedBox(
-          width: 160,
-          height: 120,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(height: 6, color: color ?? Colors.transparent),
-              Expanded(
-                child: Center(
-                  child: Text(title ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-                ),
-              ),
-            ],
-          ),
+          width: 160, height: 120,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Container(height: 6, color: color ?? Colors.transparent),
+            Expanded(child: Center(child: Text(title ?? '', maxLines: 1, overflow: TextOverflow.ellipsis))),
+          ]),
         ),
       ),
     );
@@ -734,9 +684,9 @@ class _NoteEditorState extends State<NoteEditor> {
   void initState() {
     super.initState();
     _titleCtrl = TextEditingController(text: widget.note?.title ?? '');
-    _textCtrl = TextEditingController(text: widget.note?.text ?? '');
+    _textCtrl  = TextEditingController(text: widget.note?.text  ?? '');
     _numbering = widget.note?.numbered ?? false;
-    _color = widget.note?.colorHex != null ? Color(widget.note!.colorHex!) : null;
+    _color     = widget.note?.colorHex != null ? Color(widget.note!.colorHex!) : null;
     if (_numbering) _ensureFirstLineNumbered();
   }
 
@@ -751,10 +701,7 @@ class _NoteEditorState extends State<NoteEditor> {
     if (!RegExp(r'^\s*\d+\.\s').hasMatch(lines.first)) {
       lines[0] = '1. ${lines.first}';
       final joined = lines.join('\n');
-      _textCtrl.value = TextEditingValue(
-        text: joined,
-        selection: TextSelection.collapsed(offset: joined.length),
-      );
+      _textCtrl.value = TextEditingValue(text: joined, selection: TextSelection.collapsed(offset: joined.length));
     }
   }
 
@@ -765,10 +712,10 @@ class _NoteEditorState extends State<NoteEditor> {
 
   Future<void> _save() async {
     final n = widget.note ?? NoteItem.newNote(groupId: widget.groupId);
-    n.title = _titleCtrl.text.trim();
-    n.text = _textCtrl.text;
-    n.numbered = _numbering;
-    n.colorHex = _color?.value;
+    n.title     = _titleCtrl.text.trim();
+    n.text      = _textCtrl.text;
+    n.numbered  = _numbering;
+    n.colorHex  = _color?.value;
     n.updatedAt = DateTime.now().millisecondsSinceEpoch;
     Navigator.pop(context, n);
   }
@@ -800,18 +747,14 @@ class _NoteEditorState extends State<NoteEditor> {
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(children: [
-          TextField(
-            controller: _titleCtrl,
-            decoration: const InputDecoration(labelText: 'Заголовок', border: OutlineInputBorder()),
-          ),
+          TextField(controller: _titleCtrl, decoration: const InputDecoration(labelText: 'Заголовок', border: OutlineInputBorder())),
           const SizedBox(height: 12),
           Expanded(
             child: TextField(
               controller: _textCtrl,
               inputFormatters: [_NumberingFormatter(() => _numbering)],
               expands: true,
-              minLines: null,
-              maxLines: null,
+              minLines: null, maxLines: null,
               decoration: const InputDecoration(hintText: 'Текст…', border: OutlineInputBorder()),
             ),
           ),
@@ -821,7 +764,7 @@ class _NoteEditorState extends State<NoteEditor> {
   }
 }
 
-/// Форматтер нумерации: продолжает список на Enter, завершает при "N. " + Enter.
+/// Форматтер нумерации: продолжает список на Enter, завершает при строке "N. " без текста.
 class _NumberingFormatter extends TextInputFormatter {
   final bool Function() isOn;
   _NumberingFormatter(this.isOn);
@@ -840,7 +783,7 @@ class _NumberingFormatter extends TextInputFormatter {
     final numbered = RegExp(r'^\s*(\d+)\.\s');
 
     if (onlyNum.hasMatch(prevLine)) {
-      // пользователю нужна пустая строка — завершаем список
+      // оставить пустую строку — не продолжаем
       return newValue;
     }
 
@@ -851,10 +794,7 @@ class _NumberingFormatter extends TextInputFormatter {
     final prefix = '${next + 1}. ';
 
     final text = newValue.text.substring(0, caret) + prefix + newValue.text.substring(caret);
-    return TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(offset: caret + prefix.length),
-    );
+    return TextEditingValue(text: text, selection: TextSelection.collapsed(offset: caret + prefix.length));
   }
 }
 
@@ -863,7 +803,6 @@ class _NumberingFormatter extends TextInputFormatter {
 class GroupEditor extends StatefulWidget {
   final GroupItem? group;
   const GroupEditor({super.key, this.group});
-
   @override
   State<GroupEditor> createState() => _GroupEditorState();
 }
@@ -887,12 +826,10 @@ class _GroupEditorState extends State<GroupEditor> {
       final ok = await _askOldPass(g);
       if (!ok) return;
     }
-    // установим / снимем
+    // установить / снять
     final newPass = await _askNewPass(initialOn: _private);
     if (newPass == null) return;
-    setState(() {
-      _private = newPass.isNotEmpty;
-    });
+    setState(() => _private = newPass.isNotEmpty);
     g.pass = newPass.isEmpty ? null : newPass;
   }
 
@@ -910,7 +847,7 @@ class _GroupEditorState extends State<GroupEditor> {
       ),
     );
     if (ok != true) return false;
-    final passOk = await VaultStore().verifyPassword(g, ctrl.text); // локальная проверка по строке
+    final passOk = (g.pass ?? '') == ctrl.text;
     if (!passOk && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Неверный пароль')));
     }
@@ -920,7 +857,7 @@ class _GroupEditorState extends State<GroupEditor> {
   Future<String?> _askNewPass({required bool initialOn}) async {
     final ctrl = TextEditingController();
     bool on = initialOn;
-    final res = await showDialog<String>(
+    return showDialog<String>(
       context: context,
       builder: (_) => StatefulBuilder(builder: (c, setSt) {
         return AlertDialog(
@@ -934,11 +871,7 @@ class _GroupEditorState extends State<GroupEditor> {
                 title: const Text('Сделать группу приватной'),
               ),
               if (on)
-                TextField(
-                  controller: ctrl,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Новый пароль'),
-                ),
+                TextField(controller: ctrl, obscureText: true, decoration: const InputDecoration(labelText: 'Новый пароль')),
             ],
           ),
           actions: [
@@ -948,14 +881,13 @@ class _GroupEditorState extends State<GroupEditor> {
         );
       }),
     );
-    return res;
   }
 
   Future<void> _save() async {
     final g = widget.group ?? GroupItem.newGroup();
     g.title = _title.text.trim();
     g.colorHex = _color?.value;
-    if (!_private) g.pass = null; // если выключили
+    if (!_private) g.pass = null;
     Navigator.pop(context, g);
   }
 
@@ -991,16 +923,25 @@ class _GroupEditorState extends State<GroupEditor> {
       ),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: TextField(
-          controller: _title,
-          decoration: const InputDecoration(labelText: 'Название группы', border: OutlineInputBorder()),
-        ),
+        child: TextField(controller: _title, decoration: const InputDecoration(labelText: 'Название группы', border: OutlineInputBorder())),
       ),
     );
   }
 }
 
 /* ============================ HELPERS ============================ */
+
+class _GroupIndicatorBar extends StatelessWidget implements PreferredSizeWidget {
+  final GroupItem group;
+  const _GroupIndicatorBar({required this.group, super.key});
+  @override
+  Size get preferredSize => const Size.fromHeight(4);
+  @override
+  Widget build(BuildContext context) {
+    final color = group.colorHex != null ? Color(group.colorHex!) : Theme.of(context).colorScheme.primary;
+    return Container(height: 4, color: color);
+  }
+}
 
 String _fmtDate(int ms) {
   final dt = DateTime.fromMillisecondsSinceEpoch(ms);
@@ -1021,21 +962,11 @@ Future<Color?> _pickColor(BuildContext context, {Color? initial}) async {
       content: SizedBox(
         width: 320,
         child: Wrap(
-          spacing: 12,
-          runSpacing: 12,
+          spacing: 12, runSpacing: 12,
           children: [
-            _ColorChip(
-              label: 'Без цвета',
-              selected: selected == null,
-              color: Colors.transparent,
-              onTap: () => selected = null,
-            ),
+            _ColorChip(label: 'Без цвета', selected: selected == null, color: Colors.transparent, onTap: () => selected = null),
             for (final c in palette)
-              _ColorChip(
-                color: c,
-                selected: selected?.value == c.value,
-                onTap: () => selected = c,
-              ),
+              _ColorChip(color: c, selected: selected?.value == c.value, onTap: () => selected = c),
           ],
         ),
       ),
@@ -1058,28 +989,16 @@ class _ColorChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final border = selected ? Border.all(width: 3, color: Theme.of(context).colorScheme.primary) : null;
     final bg = color == Colors.transparent ? Theme.of(context).colorScheme.surfaceVariant : color;
-    final child = Container(
-      width: 34,
-      height: 34,
-      decoration: BoxDecoration(color: bg, shape: BoxShape.circle, border: border),
-    );
+    final dot = Container(width: 34, height: 34, decoration: BoxDecoration(color: bg, shape: BoxShape.circle, border: border));
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
-      child: label == null
-          ? child
-          : Row(mainAxisSize: MainAxisSize.min, children: [child, const SizedBox(width: 8), Text(label!)]),
+      child: label == null ? dot : Row(mainAxisSize: MainAxisSize.min, children: [dot, const SizedBox(width: 8), Text(label!)]),
     );
   }
 }
 
 const List<Color> _palette = [
-  Color(0xFF64B5F6),
-  Color(0xFF4DD0E1),
-  Color(0xFF81C784),
-  Color(0xFFFFF176),
-  Color(0xFFFFD54F),
-  Color(0xFFFF8A65),
-  Color(0xFF9575CD),
-  Color(0xFF90A4AE),
+  Color(0xFF64B5F6), Color(0xFF4DD0E1), Color(0xFF81C784), Color(0xFFFFF176),
+  Color(0xFFFFD54F), Color(0xFFFF8A65), Color(0xFF9575CD), Color(0xFF90A4AE),
 ];
