@@ -327,7 +327,11 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
         seedColor: const Color(0xFF3F51B5),
         brightness: Brightness.light,
       ),
-      cardTheme: const CardTheme(margin: EdgeInsets.all(8)),
+      // было (ломает сборку на 3.35.5):
+// cardTheme: const CardTheme(margin: EdgeInsets.all(8)),
+
+// нужно:
+cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
     );
 
     final dark = ThemeData(
@@ -336,7 +340,11 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
         seedColor: const Color(0xFF7986CB),
         brightness: Brightness.dark,
       ),
-      cardTheme: const CardTheme(margin: EdgeInsets.all(8)),
+      // было (ломает сборку на 3.35.5):
+// cardTheme: const CardTheme(margin: EdgeInsets.all(8)),
+
+// нужно:
+cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
     );
 
     return AnimatedBuilder(
@@ -1148,7 +1156,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
             decoration: InputDecoration(
               labelText: 'Повторите пароль',
               suffixIcon: IconButton(
-                onPressed: () => setState(() => _ob2 = !_об2),
+                onPressed: () => setState(() => _ob2 = !_ob2),
                 icon: Icon(_ob2 ? Icons.visibility_off : Icons.visibility),
               ),
             ),
