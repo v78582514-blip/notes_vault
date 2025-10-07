@@ -1,4 +1,3 @@
-// === БЛОК 1/4 === lib/main.dart (начало файла до _GroupTile) ===
 import 'dart:convert';
 import 'dart:ui';
 import 'dart:io';
@@ -23,7 +22,7 @@ class Group {
   String title;
   int? colorHex; // ARGB int (0xFFRRGGBB)
   bool locked;
-  String? passwordHash; // демо: обычная строка
+  String? passwordHash;
 
   Group({
     required this.id,
@@ -171,55 +170,48 @@ class VaultStore extends ChangeNotifier {
 
     // демо-данные при первом запуске
     if (_groups.isEmpty && _notes.isEmpty) {
-  // создаём стандартные группы
-  final gWork = Group(
-    id: 'g_work',
-    title: 'Работа',
-    colorHex: 0xFF1565C0,
-  );
-  final gLife = Group(
-    id: 'g_life',
-    title: 'Личное',
-    colorHex: 0xFF2E7D32,
-  );
-  final gSecret = Group(
-    id: 'g_secret',
-    title: 'Приватное',
-    colorHex: 0xFF7B1FA2,
-    locked: false, // теперь открытая — пользователь может сам установить пароль позже
-  );
+      final gWork = Group(
+        id: 'g_work',
+        title: 'Работа',
+        colorHex: 0xFF1565C0,
+      );
+      final gLife = Group(
+        id: 'g_life',
+        title: 'Личное',
+        colorHex: 0xFF2E7D32,
+      );
+      final gSecret = Group(
+        id: 'g_secret',
+        title: 'Приватное',
+        colorHex: 0xFF7B1FA2,
+        locked: false, // пользователи сами поставят пароль при желании
+      );
+      _groups.addAll([gWork, gLife, gSecret]);
 
-  _groups.addAll([gWork, gLife, gSecret]);
-
-  // одна стартовая заметка с описанием приложения
-  _notes.add(
-    Note(
-      id: 'n_intro',
-      title: 'Добро пожаловать в Notes Vault',
-      text: '''
+      _notes.add(
+        Note(
+          id: 'n_intro',
+          title: 'Добро пожаловать в Notes Vault',
+          text: '''
 Это приложение создано для удобного и безопасного хранения ваших заметок.
 
 📂 Основные функции:
-• Создание заметок с цветами и группами  
-• Перетаскивание заметок в группы  
-• Создание новых групп путём объединения заметок  
-• Защита приватных групп паролем  
-• Экспорт и импорт заметок (в JSON)  
-• Умная нумерация списков в редакторе  
-• Тёмная и светлая темы оформления  
+• Цветные заметки и группы  
+• Перетаскивание заметок между группами  
+• Создание групп перетаскиванием одной заметки на другую  
+• Пароль на приватные группы (по желанию)  
 • Поиск по всем заметкам  
-• Возможность делиться заметками как текстом, Markdown или HTML  
+• Экспорт/шаринг заметок как текст, Markdown, HTML  
+• Умная нумерация списков  
+• Светлая/тёмная тема и фон в «линейку»
 
-💡 Попробуйте создать новую заметку или группу, перетащить заметку на другую — и вы увидите, как просто всё устроено!
-      ''',
-      groupId: null,
-      colorHex: 0xFFFFA000,
-      updatedAt: DateTime.now().millisecondsSinceEpoch,
-    ),
-  );
-
-  await _saveAll();
-}
+💡 Попробуйте создать новую заметку или перетащить одну заметку на другую — так создаётся новая группа.
+''',
+          groupId: null,
+          colorHex: 0xFFFFA000,
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
 
       await _saveAll();
     }
@@ -262,7 +254,6 @@ class VaultStore extends ChangeNotifier {
   }
 
   Future<void> deleteGroup(String id) async {
-    // удаляем вместе с заметками
     _notes.removeWhere((n) => n.groupId == id);
     _groups.removeWhere((g) => g.id == id);
     await _saveAll();
@@ -382,6 +373,9 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
   String? _dragNoteId;
   bool _dragging = false;
 
+  // тумблер фона «линейка»
+  bool _paperBg = true;
+
   VaultStore get store => widget.store;
 
   // Все заметки (без группы + по всем группам) — для поиска/мерджа
@@ -408,7 +402,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
         final notes = store.notesOf(_currentGroupId);
         final groups = store.groups;
 
-        return Scaffold(
+        final scaffold = Scaffold(
           appBar: AppBar(
             title: Text(
               _currentGroupId == null
@@ -416,6 +410,11 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
                   : (store.groupById(_currentGroupId!)?.title ?? 'Группа'),
             ),
             actions: [
+              IconButton(
+                tooltip: _paperBg ? 'Фон: линейка (вкл)' : 'Фон: линейка (выкл)',
+                onPressed: () => setState(() => _paperBg = !_paperBg),
+                icon: Icon(_paperBg ? Icons.menu_book : Icons.menu_book_outlined),
+              ),
               IconButton(
                 tooltip: 'Поиск',
                 onPressed: () async {
@@ -482,6 +481,16 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
           ),
           floatingActionButton: _fabColumn(context),
         );
+
+        if (!_paperBg) return scaffold;
+
+        final dark =
+            Theme.of(context).brightness == Brightness.dark;
+
+        return CustomPaint(
+          painter: _PaperBackgroundPainter(dark: dark),
+          child: scaffold,
+        );
       },
     );
   }
@@ -506,7 +515,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
         ),
       ],
     );
-  }// === БЛОК 2/4 === lib/main.dart (от _groupsStrip до _NoteGhostCard) ===
+  }
 
   /// Полоса групп (каждая — DragTarget<String>)
   Widget _groupsStrip(BuildContext context, List<Group> groups) {
@@ -1039,6 +1048,7 @@ class _NoteCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Верхняя цветная полоска
               Container(
                 height: 4,
                 decoration: BoxDecoration(
@@ -1047,6 +1057,7 @@ class _NoteCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
+              // Заголовок
               Text(
                 note.title.isEmpty ? 'Без заголовка' : note.title,
                 maxLines: 1,
@@ -1054,6 +1065,7 @@ class _NoteCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 6),
+              // Текст
               Expanded(
                 child: Text(
                   note.text,
@@ -1063,6 +1075,7 @@ class _NoteCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 6),
+              // Нижняя строка
               Row(
                 children: [
                   const Icon(Icons.access_time, size: 14),
@@ -1131,7 +1144,48 @@ class _NoteGhostCard extends StatelessWidget {
       ),
     );
   }
-}// === БЛОК 3/4 === lib/main.dart (поиск + диалоги до _GroupEditorDialog) ===
+}
+
+/// Фон «линейка» для экрана
+class _PaperBackgroundPainter extends CustomPainter {
+  final bool dark;
+  _PaperBackgroundPainter({required this.dark});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Заливка фона
+    final bgPaint = Paint()
+      ..color = dark ? const Color(0xFF0F1113) : const Color(0xFFFDFDFD);
+    canvas.drawRect(Offset.zero & size, bgPaint);
+
+    // Цвета линий
+    final lineColor =
+        dark ? const Color(0xFF1F252A) : const Color(0xFFE7EDF2);
+    final marginColor =
+        dark ? const Color(0xFF39424A) : const Color(0xFFCAD6E1);
+
+    final linePaint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 1;
+
+    // Вертикальная полевая линия слева
+    const marginX = 28.0;
+    final marginPaint = Paint()
+      ..color = marginColor
+      ..strokeWidth = 1;
+    canvas.drawLine(Offset(marginX, 0), Offset(marginX, size.height), marginPaint);
+
+    // Горизонтальные линии через заданный шаг
+    const gap = 28.0;
+    for (double y = gap; y < size.height; y += gap) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _PaperBackgroundPainter oldDelegate) =>
+      oldDelegate.dark != dark;
+}
 
 /// =======================
 /// ПОИСК ЗАМЕТОК
@@ -1296,7 +1350,7 @@ class _PasswordEditorDialog extends StatefulWidget {
 class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
   final _p1 = TextEditingController();
   final _p2 = TextEditingController();
-  bool _ob1 = true, _ob2 = true; // <— латиница: o-b-1 / o-b-2
+  bool _ob1 = true, _ob2 = true;
 
   @override
   Widget build(BuildContext context) {
@@ -1323,7 +1377,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
             decoration: InputDecoration(
               labelText: 'Повторите пароль',
               suffixIcon: IconButton(
-                onPressed: () => setState(() => _ob2 = !_ob2),
+                onPressed: () => setState(() => _ob2 = !_об2),
                 icon: Icon(_ob2 ? Icons.visibility_off : Icons.visibility),
               ),
             ),
@@ -1351,7 +1405,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
       ],
     );
   }
-}// === БЛОК 4/4 === lib/main.dart (редакторы + выбор цвета + нумерация) ===
+}
 
 class _GroupEditorDialog extends StatefulWidget {
   const _GroupEditorDialog({this.group});
