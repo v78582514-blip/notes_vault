@@ -1853,3 +1853,44 @@ class _NumberingFormatter extends TextInputFormatter {
     return newValue;
   }
 }
+/// Фон «линейка» для экрана
+class _PaperBackgroundPainter extends CustomPainter {
+  final bool dark;
+  _PaperBackgroundPainter({required this.dark});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Градиент подложка
+    final bg = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: dark
+            ? const [Color(0xFF0F1113), Color(0xFF101317)]
+            : const [Color(0xFFFDFDFD), Color(0xFFF8FAFF)],
+      ).createShader(Offset.zero & size);
+
+    canvas.drawRect(Offset.zero & size, bg);
+
+    // Горизонтальные линии «в линейку»
+    final linePaint = Paint()
+      ..color = dark ? const Color(0x14FFFFFF) : const Color(0x1A000000)
+      ..strokeWidth = 1;
+
+    const step = 28.0;
+    for (double y = 0; y < size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
+    }
+
+    // Вертикальное «поле» слева
+    final marginPaint = Paint()
+      ..color = dark ? const Color(0x22FFFFFF) : const Color(0x220000FF)
+      ..strokeWidth = 2;
+    const marginX = 20.0;
+    canvas.drawLine(Offset(marginX, 0), Offset(marginX, size.height), marginPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _PaperBackgroundPainter oldDelegate) =>
+      oldDelegate.dark != dark;
+}
