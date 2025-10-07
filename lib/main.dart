@@ -1260,9 +1260,10 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
   late String? _groupId;
   Color? _color;
   bool _numbering = false;
-
+late final ScrollController _dialogScroll;
   @override
   void initState() {
+    _dialogScroll = ScrollController();
     super.initState();
     _id = widget.note?.id ?? 'n_${DateTime.now().microsecondsSinceEpoch}';
     _title = TextEditingController(text: widget.note?.title ?? '');
@@ -1297,57 +1298,74 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      scrollable: true,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      titlePadding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
-      contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      actionsPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(widget.note == null ? 'Новая заметка' : 'Редактирование'),
-          ),
-          IconButton(
-            tooltip: _numbering ? 'Нумерация: включена' : 'Нумерация: выключена',
-            onPressed: _toggleNumbering,
-            icon: Icon(
-              Icons.format_list_numbered,
-              color: _numbering
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
-          ),
-          IconButton(
-            tooltip: 'Цвет',
-            onPressed: () async {
-              final picked = await showDialog<Color?>(
-                context: context,
-                builder: (_) => _ColorDialog(initial: _color),
-              );
-              if (picked != null) setState(() => _color = picked);
-            },
-            icon: const Icon(Icons.color_lens_outlined),
-          ),
-        ],
-      ),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 540),
+Widget build(BuildContext context) {
+  // Весь диалог скроллится одной прокруткой, включая «шапку».
+  return AlertDialog(
+    // Встроенную прокрутку AlertDialog убираем, т.к. скроллим сами.
+    scrollable: false,
+    insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+    contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+    actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+
+    // ВАЖНО: ограничиваем только ширину, а не высоту — чтобы работала общая прокрутка.
+    content: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: SingleChildScrollView(
+        controller: _dialogScroll,
+        padding: EdgeInsets.zero,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // --- ШАПКА (перенесена из title:, теперь она внутри общего скролла) ---
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.note == null ? 'Новая заметка' : 'Заметка',
+                    // тот же стиль, что и раньше в title
+                  ),
+                ),
+                IconButton(
+                  tooltip: _numbering ? 'Нумерация: выкл' : 'Нумерация: вкл',
+                  onPressed: _toggleNumbering,
+                  icon: Icon(
+                    Icons.format_list_numbered,
+                    // подсветка как было у тебя
+                    color: _numbering
+                        ? Theme.of(context).colorScheme.primary
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Цвет',
+                  onPressed: () async {
+                    final picked = await showDialog<Color?>(
+                      context: context,
+                      builder: (_) => _ColorDialog(initial: _color),
+                    );
+                    if (picked != null) setState(() => _color = picked);
+                  },
+                  icon: const Icon(Icons.color_lens_outlined),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // --- СОДЕРЖИМОЕ (как у тебя было в content:) ---
             TextField(
               controller: _title,
               textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(labelText: 'Заголовок'),
+              decoration: const InputDecoration(
+                labelText: 'Заголовок',
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: 12),
 
             Align(
               alignment: Alignment.centerLeft,
               child: FilterChip(
-                label: Text(_groupId == null ? 'Без группы' : 'Сбросить группу'),
+                label: const Text('Без группы'),
                 selected: _groupId == null,
                 onSelected: (_) => setState(() => _groupId = null),
               ),
@@ -1368,6 +1386,7 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
               ),
             ),
             const SizedBox(height: 8),
+
             _ColorPicker(
               value: _color,
               onChanged: (c) => setState(() => _color = c),
@@ -1375,28 +1394,31 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Отмена'),
-        ),
-        FilledButton(
-          onPressed: () {
-            final note = Note(
-              id: _id,
-              title: _title.text.trim(),
-              text: _body.text,
-              groupId: _groupId,
-              colorHex: _color?.toARGB32(),
-              updatedAt: DateTime.now().millisecondsSinceEpoch,
-            );
-            Navigator.pop(context, note);
-          },
-          child: const Text('Сохранить'),
-        ),
-      ],
-    );
-  }
+    ),
+
+    // --- Кнопки как было ---
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Отмена'),
+      ),
+      FilledButton(
+        onPressed: () {
+          final note = Note(
+            id: _id,
+            title: _title.text.trim(),
+            text: _body.text,
+            groupId: _groupId,
+            colorHex: _color?.toARGB32(),
+            updatedAt: DateTime.now().millisecondsSinceEpoch,
+          );
+          Navigator.pop(context, note);
+        },
+        child: const Text('Сохранить'),
+      ),
+    ],
+  );
+}
 }
 
 /// =======================
