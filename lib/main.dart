@@ -426,19 +426,6 @@ final TextEditingController _searchCtrl = TextEditingController();
   },
   icon: const Icon(Icons.search),
 ),
-IconButton(
-  tooltip: 'Поиск',
-  onPressed: () async {
-    final picked = await showSearch<Note?>(
-      context: context,
-      delegate: _NotesSearchDelegate(
-        notes: _allNotes(),
-        onOpen: (n) => _editNote(context, n),
-      ),
-    );
-  },
-  icon: const Icon(Icons.search),
-),
               IconButton(
                 tooltip: 'Сменить тему',
                 onPressed: () {
