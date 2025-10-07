@@ -1148,8 +1148,8 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
             decoration: InputDecoration(
               labelText: 'Повторите пароль',
               suffixIcon: IconButton(
-                onPressed: () => setState(() => _об2 = !_об2),
-                icon: Icon(_об2 ? Icons.visibility_off : Icons.visibility),
+                onPressed: () => setState(() => _ob2 = !_ob2),
+                icon: Icon(_ob2 ? Icons.visibility_off : Icons.visibility),
               ),
             ),
           ),
@@ -1162,7 +1162,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
         ),
         FilledButton(
           onPressed: () {
-            final a = _п1.text.trim(), b = _п2.text.trim();
+            final a = _p1.text.trim(), b = _p2.text.trim();
             if (a.isEmpty || a != b) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Пароли не совпадают')),
