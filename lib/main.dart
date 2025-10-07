@@ -1,12 +1,12 @@
 import 'dart:convert';
 import 'dart:ui';
-import 'dart:io'; // NEW
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:share_plus/share_plus.dart'; // NEW
-import 'package:path_provider/path_provider.dart'; // NEW
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -321,7 +321,6 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
 
   @override
   Widget build(BuildContext context) {
-    // Тема: НЕ выставляем ThemeData.brightness, чтобы не конфликтовать с colorScheme
     final light = ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(
@@ -340,7 +339,6 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
       cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
     );
 
-    // Оборачиваем в AnimatedBuilder, чтобы реагировать на изменения store (тема и т.п.)
     return AnimatedBuilder(
       animation: store,
       builder: (context, _) => MaterialApp(
@@ -526,7 +524,6 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
     final size = MediaQuery.of(context).size;
     final isPortrait =
         MediaQuery.of(context).orientation == Orientation.portrait;
-    // 2 колонки на телефонах/портрете, 3 — на широких
     final cols = (size.width < 700 || isPortrait) ? 2 : 3;
 
     return GridView.builder(
@@ -560,7 +557,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
             note: n,
             onTap: () => _editNote(context, n),
             onDelete: () => _confirmDeleteNote(context, n),
-            onShare: () => _shareNote(context, n), // NEW
+            onShare: () => _shareNote(context, n),
           ),
         );
       },
@@ -667,6 +664,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
   Future<void> _editNote(BuildContext context, [Note? original]) async {
     final updated = await showDialog<Note>(
       context: context,
+      barrierDismissible: false,
       builder: (_) => _NoteEditorDialog(
         note: original,
         defaultGroupId: _currentGroupId,
@@ -730,7 +728,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
     );
   }
 
-  /// ====== ФОРМАТИРОВАНИЕ И ШАРИНГ ЗАМЕТКИ (NEW) ======
+  /// ====== ФОРМАТИРОВАНИЕ И ШАРИНГ ЗАМЕТКИ ======
 
   String _fmtNoteAsPlain(Note n) {
     final title = n.title.trim().isEmpty ? 'Без заголовка' : n.title.trim();
@@ -741,7 +739,6 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
   String _fmtNoteAsMarkdown(Note n) {
     final title = n.title.trim().isEmpty ? 'Без заголовка' : n.title.trim();
     final time = _fmtTime(n.updatedAt);
-    // Текст уже может содержать списки/нумерацию — передаём как есть.
     return '# $title\n\n*Обновлено: $time*\n\n${n.text}';
   }
 
@@ -820,11 +817,10 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
           break;
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не удалось поделиться: $e')),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось поделиться: $e')),
+      );
     }
   }
 }
@@ -921,13 +917,13 @@ class _NoteCard extends StatelessWidget {
     required this.note,
     required this.onTap,
     required this.onDelete,
-    required this.onShare, // NEW
+    required this.onShare,
   });
 
   final Note note;
   final VoidCallback onTap;
   final VoidCallback onDelete;
-  final VoidCallback onShare; // NEW
+  final VoidCallback onShare;
 
   @override
   Widget build(BuildContext context) {
@@ -991,7 +987,7 @@ class _NoteCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 4),
                   IconButton(
-                    tooltip: 'Поделиться', // NEW
+                    tooltip: 'Поделиться',
                     padding: EdgeInsets.zero,
                     constraints:
                         const BoxConstraints.tightFor(width: 32, height: 32),
@@ -1018,6 +1014,7 @@ class _NoteCard extends StatelessWidget {
     );
   }
 }
+
 class _NoteGhostCard extends StatelessWidget {
   const _NoteGhostCard({this.color});
   final Color? color;
@@ -1148,7 +1145,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
             decoration: InputDecoration(
               labelText: 'Повторите пароль',
               suffixIcon: IconButton(
-                onPressed: () => setState(() => _ob2 = !_ob2),
+                onPressed: () => setState(() => _ob2 = !_об2),
                 icon: Icon(_ob2 ? Icons.visibility_off : Icons.visibility),
               ),
             ),
@@ -1177,7 +1174,6 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
     );
   }
 }
-
 class _GroupEditorDialog extends StatefulWidget {
   const _GroupEditorDialog({this.group});
   final Group? group;
@@ -1253,6 +1249,7 @@ class _NoteEditorDialog extends StatefulWidget {
   State<_NoteEditorDialog> createState() => _NoteEditorDialogState();
 }
 
+/// Важно: единый скролл для всей «шапки + полей», чтобы можно было доскроллить до AppBar.
 class _NoteEditorDialogState extends State<_NoteEditorDialog> {
   late final TextEditingController _title;
   late final TextEditingController _body;
@@ -1260,10 +1257,9 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
   late String? _groupId;
   Color? _color;
   bool _numbering = false;
-late final ScrollController _dialogScroll;
+
   @override
   void initState() {
-    _dialogScroll = ScrollController();
     super.initState();
     _id = widget.note?.id ?? 'n_${DateTime.now().microsecondsSinceEpoch}';
     _title = TextEditingController(text: widget.note?.title ?? '');
@@ -1298,291 +1294,136 @@ late final ScrollController _dialogScroll;
   }
 
   @override
-Widget build(BuildContext context) {
-  // Весь диалог скроллится одной прокруткой, включая «шапку».
-  return AlertDialog(
-    // Встроенную прокрутку AlertDialog убираем, т.к. скроллим сами.
-    scrollable: false,
-    insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-    contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-    actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-
-    // ВАЖНО: ограничиваем только ширину, а не высоту — чтобы работала общая прокрутка.
-    content: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 520),
-      child: SingleChildScrollView(
-        controller: _dialogScroll,
-        padding: EdgeInsets.zero,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // --- ШАПКА (перенесена из title:, теперь она внутри общего скролла) ---
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    widget.note == null ? 'Новая заметка' : 'Заметка',
-                    // тот же стиль, что и раньше в title
-                  ),
-                ),
-                IconButton(
-                  tooltip: _numbering ? 'Нумерация: выкл' : 'Нумерация: вкл',
-                  onPressed: _toggleNumbering,
-                  icon: Icon(
-                    Icons.format_list_numbered,
-                    // подсветка как было у тебя
-                    color: _numbering
-                        ? Theme.of(context).colorScheme.primary
-                        : Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                IconButton(
-  tooltip: 'Цвет',
-  onPressed: () async {
-    final picked = await showDialog<Color?>(
-      context: context,
-      builder: (_) => _ColorDialog(initial: _color),
-    );
-    if (picked != null) setState(() => _color = picked);
-  },
-  icon: const Icon(Icons.color_lens_outlined),
-),
-              ],
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: LayoutBuilder(
+        builder: (context, constraints) => ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: constraints.maxHeight * 0.95),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
             ),
-            const SizedBox(height: 12),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Заголовок и кнопки действий (внутри общего скролла!)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.note == null ? 'Новая заметка' : 'Редактирование',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: _numbering
+                            ? 'Нумерация: включена'
+                            : 'Нумерация: выключена',
+                        onPressed: _toggleNumbering,
+                        icon: Icon(
+                          Icons.format_list_numbered,
+                          color: _numbering
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Цвет',
+                        onPressed: () async {
+                          final picked = await showDialog<Color?>(
+                            context: context,
+                            builder: (_) => _ColorDialog(initial: _color),
+                          );
+                          if (picked != null) setState(() => _color = picked);
+                        },
+                        icon: const Icon(Icons.color_lens_outlined),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
 
-            // --- СОДЕРЖИМОЕ (как у тебя было в content:) ---
-            TextField(
-              controller: _title,
-              inputFormatters: [
-  _NumberingFormatter(() => _numbering),
-],
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Заголовок',
-                border: OutlineInputBorder(),
+                  TextField(
+                    controller: _title,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(labelText: 'Заголовок'),
+                  ),
+                  const SizedBox(height: 12),
+
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilterChip(
+                      label: Text(_groupId == null
+                          ? 'Без группы'
+                          : 'Сбросить группу'),
+                      selected: _groupId == null,
+                      onSelected: (_) => setState(() => _groupId = null),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  TextField(
+                    controller: _body,
+                    minLines: 8,
+                    maxLines: 16,
+                    keyboardType: TextInputType.multiline,
+                    inputFormatters: [
+                      _NumberingFormatter(() => _numbering),
+                    ],
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      hintText: 'Текст заметки…',
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  _ColorPicker(
+                    value: _color,
+                    onChanged: (c) => setState(() => _color = c),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Отмена'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: () {
+                          final note = Note(
+                            id: _id,
+                            title: _title.text.trim(),
+                            text: _body.text,
+                            groupId: _groupId,
+                            colorHex: _color?.toARGB32(),
+                            updatedAt:
+                                DateTime.now().millisecondsSinceEpoch,
+                          );
+                          Navigator.pop(context, note);
+                        },
+                        child: const Text('Сохранить'),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-@override
-Widget build(BuildContext context) {
-  return Dialog(
-    insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-    child: LayoutBuilder(
-      builder: (context, constraints) => ConstrainedBox(
-        // ограничим высоту, чтобы диалог всегда влезал
-        constraints: BoxConstraints(maxHeight: constraints.maxHeight * 0.95),
-        child: SingleChildScrollView(
-          // главный трюк: общий скролл для всей «шапки + полей»
-          padding: EdgeInsets.only(
-            // чтобы при открытой клавиатуре контент можно было доскроллить
-            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Заголовок и кнопки действий
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        widget.note == null ? 'Новая заметка' : 'Редактирование',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: _numbering ? 'Нумерация: включена' : 'Нумерация: выключена',
-                      onPressed: _toggleNumbering,
-                      icon: Icon(
-                        Icons.format_list_numbered,
-                        color: _numbering
-                            ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Цвет',
-                      onPressed: () async {
-                        final picked = await showDialog<Color?>(
-                          context: context,
-                          builder: (_) => _ColorDialog(initial: _color),
-                        );
-                        if (picked != null) setState(() => _color = picked);
-                      },
-                      icon: const Icon(Icons.color_lens_outlined),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                // Поля ввода
-                TextField(
-                  controller: _title,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(labelText: 'Заголовок'),
-                ),
-                const SizedBox(height: 12),
-
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: FilterChip(
-                    label: Text(_groupId == null ? 'Без группы' : 'Сбросить группу'),
-                    selected: _groupId == null,
-                    onSelected: (_) => setState(() => _groupId = null),
-                  ),
-                ),
-                const SizedBox(height: 8),
-
-                TextField(
-                  controller: _body,
-                  minLines: 8,
-                  maxLines: 16,
-                  keyboardType: TextInputType.multiline,
-                  inputFormatters: [
-                    _NumberingFormatter(() => _numbering),
-                  ],
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    hintText: 'Текст заметки…',
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Карусель выбора цвета под полем (как было)
-                _ColorPicker(
-                  value: _color,
-                  onChanged: (c) => setState(() => _color = c),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Кнопки внизу
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Отмена'),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      onPressed: () {
-                        final note = Note(
-                          id: _id,
-                          title: _title.text.trim(),
-                          text: _body.text,
-                          groupId: _groupId,
-                          colorHex: _color?.toARGB32(),
-                          updatedAt: DateTime.now().millisecondsSinceEpoch,
-                        );
-                        Navigator.pop(context, note);
-                      },
-                      child: const Text('Сохранить'),
-                    ),
-                  ],
-                ),
-              ],
             ),
           ),
         ),
       ),
-    ),
-  );
-}
-
-/// =======================
-/// ВЫБОР ЦВЕТА
-/// =======================
-
-class _ColorDialog extends StatefulWidget {
-  const _ColorDialog({this.initial});
-  final Color? initial;
-
-  @override
-  State<_ColorDialog> createState() => _ColorDialogState();
-}
-
-class _ColorDialogState extends State<_ColorDialog> {
-  Color? value;
-
-  @override
-  void initState() {
-    super.initState();
-    value = widget.initial;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Выберите цвет'),
-      content: _ColorPicker(
-        value: value,
-        onChanged: (v) => setState(() => value = v),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, widget.initial),
-          child: const Text('Отмена'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, value),
-          child: const Text('Готово'),
-        ),
-      ],
     );
   }
 }
-
-class _ColorPicker extends StatelessWidget {
-  const _ColorPicker({required this.value, required this.onChanged});
-  final Color? value;
-  final ValueChanged<Color?> onChanged;
-
-  static const _palette = [
-    Color(0xFFFF7043),
-    Color(0xFFE57373),
-    Color(0xFFBA68C8),
-    Color(0xFF9575CD),
-    Color(0xFF64B5F6),
-    Color(0xFF4FC3F7),
-    Color(0xFF4DB6AC),
-    Color(0xFF81C784),
-    Color(0xFFAED581),
-    Color(0xFFFFD54F),
-    Color(0xFFFFB74D),
-    Color(0xFFA1887F),
-    Color(0xFF90A4AE),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: [
-        _ColorDot(
-          color: null,
-          selected: value == null,
-          onTap: () => onChanged(null),
-        ),
-        for (final c in _palette)
-          _ColorDot(
-            color: c,
-            selected: value?.toARGB32() == c.toARGB32(),
-            onTap: () => onChanged(c),
-          ),
-      ],
-    );
-  }
-}
-
-class _ColorDot extends StatelessWidget {
-  const _ColorDot({required this.color, required this.selected, required this.onTap});
-  final Color? color;
-  final bool selected;
-  final VoidCallback onTap;
 
 /// =======================
 /// ВЫБОР ЦВЕТА
@@ -1706,10 +1547,12 @@ class _ColorDot extends StatelessWidget {
         decoration: BoxDecoration(
           color: color ?? Colors.transparent,
           shape: BoxShape.circle,
-          border: color == null ? Border.all(color: Colors.grey, width: 1.2) : null,
+          border:
+              color == null ? Border.all(color: Colors.grey, width: 1.2) : null,
         ),
       );
 }
+
 /// =======================
 /// ФОРМАТТЕР НУМЕРАЦИИ
 /// =======================
@@ -1729,7 +1572,8 @@ class _NumberingFormatter extends TextInputFormatter {
     final newText = newValue.text;
 
     // ENTER → добавить "<n>. "
-    final enteredNewLine = newText.length > oldText.length && newText.endsWith('\n');
+    final enteredNewLine =
+        newText.length > oldText.length && newText.endsWith('\n');
     if (enteredNewLine) {
       final cursor = newValue.selection.end;
       final before = newText.substring(0, cursor);
