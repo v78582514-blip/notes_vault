@@ -1359,66 +1359,134 @@ Widget build(BuildContext context) {
                 labelText: 'Заголовок',
                 border: OutlineInputBorder(),
               ),
-            ),
-            const SizedBox(height: 12),
+@override
+Widget build(BuildContext context) {
+  return Dialog(
+    insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    child: LayoutBuilder(
+      builder: (context, constraints) => ConstrainedBox(
+        // ограничим высоту, чтобы диалог всегда влезал
+        constraints: BoxConstraints(maxHeight: constraints.maxHeight * 0.95),
+        child: SingleChildScrollView(
+          // главный трюк: общий скролл для всей «шапки + полей»
+          padding: EdgeInsets.only(
+            // чтобы при открытой клавиатуре контент можно было доскроллить
+            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Заголовок и кнопки действий
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.note == null ? 'Новая заметка' : 'Редактирование',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: _numbering ? 'Нумерация: включена' : 'Нумерация: выключена',
+                      onPressed: _toggleNumbering,
+                      icon: Icon(
+                        Icons.format_list_numbered,
+                        color: _numbering
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Цвет',
+                      onPressed: () async {
+                        final picked = await showDialog<Color?>(
+                          context: context,
+                          builder: (_) => _ColorDialog(initial: _color),
+                        );
+                        if (picked != null) setState(() => _color = picked);
+                      },
+                      icon: const Icon(Icons.color_lens_outlined),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
 
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FilterChip(
-                label: const Text('Без группы'),
-                selected: _groupId == null,
-                onSelected: (_) => setState(() => _groupId = null),
-              ),
-            ),
-            const SizedBox(height: 8),
+                // Поля ввода
+                TextField(
+                  controller: _title,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Заголовок'),
+                ),
+                const SizedBox(height: 12),
 
-            TextField(
-              controller: _body,
-              minLines: 8,
-              maxLines: 16,
-              keyboardType: TextInputType.multiline,
-              inputFormatters: [
-                _NumberingFormatter(() => _numbering),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilterChip(
+                    label: Text(_groupId == null ? 'Без группы' : 'Сбросить группу'),
+                    selected: _groupId == null,
+                    onSelected: (_) => setState(() => _groupId = null),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                TextField(
+                  controller: _body,
+                  minLines: 8,
+                  maxLines: 16,
+                  keyboardType: TextInputType.multiline,
+                  inputFormatters: [
+                    _NumberingFormatter(() => _numbering),
+                  ],
+                  decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    hintText: 'Текст заметки…',
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Карусель выбора цвета под полем (как было)
+                _ColorPicker(
+                  value: _color,
+                  onChanged: (c) => setState(() => _color = c),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Кнопки внизу
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Отмена'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () {
+                        final note = Note(
+                          id: _id,
+                          title: _title.text.trim(),
+                          text: _body.text,
+                          groupId: _groupId,
+                          colorHex: _color?.toARGB32(),
+                          updatedAt: DateTime.now().millisecondsSinceEpoch,
+                        );
+                        Navigator.pop(context, note);
+                      },
+                      child: const Text('Сохранить'),
+                    ),
+                  ],
+                ),
               ],
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'Текст заметки…',
-              ),
             ),
-            const SizedBox(height: 8),
-
-            _ColorPicker(
-              value: _color,
-              onChanged: (c) => setState(() => _color = c),
-            ),
-          ],
+          ),
         ),
       ),
     ),
-
-    // --- Кнопки как было ---
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Отмена'),
-      ),
-      FilledButton(
-        onPressed: () {
-          final note = Note(
-            id: _id,
-            title: _title.text.trim(),
-            text: _body.text,
-            groupId: _groupId,
-            colorHex: _color?.toARGB32(),
-            updatedAt: DateTime.now().millisecondsSinceEpoch,
-          );
-          Navigator.pop(context, note);
-        },
-        child: const Text('Сохранить'),
-      ),
-    ],
   );
-}
 }
 
 /// =======================
