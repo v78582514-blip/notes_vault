@@ -1,12 +1,14 @@
 import 'dart:convert';
-import 'dart:ui';
 import 'dart:io';
+import 'dart:math';
+import 'dart:ui';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,7 +24,7 @@ class Group {
   String title;
   int? colorHex; // ARGB int (0xFFRRGGBB)
   bool locked;
-  String? passwordHash;
+  String? passwordHash; // salt$sha256(salt+password)
 
   Group({
     required this.id,
@@ -137,45 +139,6 @@ extension _ColorToArgb on Color {
 /// =======================
 
 class VaultStore extends ChangeNotifier {
-  class VaultStore extends ChangeNotifier {
-  static const _kGroups = 'groups_v1';
-  static const _kNotes = 'notes_v1';
-  static const _kTheme = 'theme_v1'; // light/dark/system
-
-  // === 🔒 ХЭШИРОВАНИЕ ПАРОЛЕЙ ===
-  import 'dart:convert';
-  import 'package:crypto/crypto.dart';
-  import 'dart:math';
-
-  /// Хэширует пароль с солью
-  String hashPassword(String password) {
-    final salt = _generateSalt(8);
-    final bytes = utf8.encode(salt + password);
-    final digest = sha256.convert(bytes);
-    return '$salt\$${digest.toString()}';
-  }
-
-  /// Проверяет пароль, сверяя с хэшем
-  bool verifyPassword(String password, String storedHash) {
-    final parts = storedHash.split('\$');
-    if (parts.length != 2) return false;
-    final salt = parts[0];
-    final hash = parts[1];
-    final digest = sha256.convert(utf8.encode(salt + password));
-    return digest.toString() == hash;
-  }
-
-  /// Генерация случайной соли
-  String _generateSalt(int length) {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final rand = Random.secure();
-    return List.generate(length, (_) => chars[rand.nextInt(chars.length)]).join();
-  }
-
-  // === ДАННЫЕ ===
-  final List<Group> _groups = [];
-  final List<Note> _notes = [];
-  ThemeMode themeMode = ThemeMode.system;
   static const _kGroups = 'groups_v1';
   static const _kNotes = 'notes_v1';
   static const _kTheme = 'theme_v1'; // 'light' | 'dark' | 'system'
@@ -184,7 +147,32 @@ class VaultStore extends ChangeNotifier {
   final List<Note> _notes = [];
   ThemeMode themeMode = ThemeMode.system;
 
+  // ===== ХЭШИРОВАНИЕ ПАРОЛЯ (salt + SHA-256) =====
+
+  String _generateSalt([int length = 12]) {
+    const chars =
+        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final r = Random.secure();
+    return List.generate(length, (_) => chars[r.nextInt(chars.length)]).join();
+  }
+
+  String hashPassword(String password) {
+    final salt = _generateSalt();
+    final digest = sha256.convert(utf8.encode('$salt$password')).toString();
+    return '$salt\$$digest';
+  }
+
+  bool _verifyHashed(String input, String stored) {
+    final parts = stored.split('\$');
+    if (parts.length != 2) return false;
+    final salt = parts[0];
+    final expected = parts[1];
+    final digest = sha256.convert(utf8.encode('$salt$input')).toString();
+    return digest == expected;
+  }
+
   List<Group> get groups => List.unmodifiable(_groups);
+
   List<Note> notesOf(String? groupId) =>
       _notes.where((n) => n.groupId == groupId).toList()
         ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
@@ -223,7 +211,7 @@ class VaultStore extends ChangeNotifier {
         id: 'g_secret',
         title: 'Приватное',
         colorHex: 0xFF7B1FA2,
-        locked: false, // пользователи сами поставят пароль при желании
+        locked: false, // пользователь сможет поставить пароль позже
       );
       _groups.addAll([gWork, gLife, gSecret]);
 
@@ -280,7 +268,7 @@ class VaultStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  // группы
+  // ===== группы =====
   Future<void> upsertGroup(Group g) async {
     final i = _groups.indexWhere((x) => x.id == g.id);
     if (i >= 0) {
@@ -299,7 +287,7 @@ class VaultStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  // заметки
+  // ===== заметки =====
   Future<void> upsertNote(Note n) async {
     final i = _notes.indexWhere((x) => x.id == n.id);
     if (i >= 0) {
@@ -334,8 +322,11 @@ class VaultStore extends ChangeNotifier {
   Group? groupById(String? id) =>
       id == null ? null : _groups.firstWhere((g) => g.id == id);
 
+  // Проверка пароля группы
   Future<bool> verifyPassword(Group g, String input) async {
-    return (g.passwordHash ?? '').trim() == input.trim();
+    final stored = (g.passwordHash ?? '').trim();
+    if (stored.isEmpty) return false;
+    return _verifyHashed(input.trim(), stored);
   }
 }
 
@@ -417,7 +408,6 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
 
   VaultStore get store => widget.store;
 
-  // Все заметки (без группы + по всем группам) — для поиска/мерджа
   List<Note> _allNotes() {
     final list = <Note>[];
     list.addAll(store.notesOf(null));
@@ -442,7 +432,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
         final groups = store.groups;
 
         final scaffold = Scaffold(
-          backgroundColor: Colors.transparent, // ← добавь это!
+          backgroundColor: Colors.transparent, // важно для фона
           appBar: AppBar(
             title: Text(
               _currentGroupId == null
@@ -453,7 +443,8 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
               IconButton(
                 tooltip: _paperBg ? 'Фон: линейка (вкл)' : 'Фон: линейка (выкл)',
                 onPressed: () => setState(() => _paperBg = !_paperBg),
-                icon: Icon(_paperBg ? Icons.menu_book : Icons.menu_book_outlined),
+                icon:
+                    Icon(_paperBg ? Icons.menu_book : Icons.menu_book_outlined),
               ),
               IconButton(
                 tooltip: 'Поиск',
@@ -524,8 +515,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
 
         if (!_paperBg) return scaffold;
 
-        final dark =
-            Theme.of(context).brightness == Brightness.dark;
+        final dark = Theme.of(context).brightness == Brightness.dark;
 
         return CustomPaint(
           painter: _PaperBackgroundPainter(dark: dark),
@@ -625,7 +615,6 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
         final c =
             n.color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
 
-        // Ячейка принимает drop другой заметки (чтобы объединить их в новую группу)
         return DragTarget<String>(
           onWillAcceptWithDetails: (details) => details.data != n.id,
           onAcceptWithDetails: (details) async {
@@ -658,8 +647,6 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
                     onShare: () => _shareNote(context, n),
                   ),
                 ),
-
-                // Подсветка, когда над карточкой держат другую
                 if (isHover)
                   Positioned.fill(
                     child: IgnorePointer(
@@ -769,7 +756,9 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
       case 'Сделать приватной':
         final pass = await _askNewPassword(context);
         if (pass != null && pass.isNotEmpty) {
-          await store.upsertGroup(g.copyWith(locked: true, passwordHash: pass));
+          final hashed = store.hashPassword(pass);
+          await store.upsertGroup(
+              g.copyWith(locked: true, passwordHash: hashed));
         }
         break;
 
@@ -1088,7 +1077,6 @@ class _NoteCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Верхняя цветная полоска
               Container(
                 height: 4,
                 decoration: BoxDecoration(
@@ -1097,7 +1085,6 @@ class _NoteCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              // Заголовок
               Text(
                 note.title.isEmpty ? 'Без заголовка' : note.title,
                 maxLines: 1,
@@ -1105,7 +1092,6 @@ class _NoteCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 6),
-              // Текст
               Expanded(
                 child: Text(
                   note.text,
@@ -1115,7 +1101,6 @@ class _NoteCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 6),
-              // Нижняя строка
               Row(
                 children: [
                   const Icon(Icons.access_time, size: 14),
@@ -1199,10 +1184,8 @@ class _PaperBackgroundPainter extends CustomPainter {
     canvas.drawRect(Offset.zero & size, bgPaint);
 
     // Цвета линий
-    final lineColor =
-        dark ? const Color(0xFF1F252A) : const Color(0xFFE7EDF2);
-    final marginColor =
-        dark ? const Color(0xFF39424A) : const Color(0xFFCAD6E1);
+    final lineColor = dark ? const Color(0xFF1F252A) : const Color(0xFFE7EDF2);
+    final marginColor = dark ? const Color(0xFF39424A) : const Color(0xFFCAD6E1);
 
     final linePaint = Paint()
       ..color = lineColor
@@ -1215,7 +1198,7 @@ class _PaperBackgroundPainter extends CustomPainter {
       ..strokeWidth = 1;
     canvas.drawLine(Offset(marginX, 0), Offset(marginX, size.height), marginPaint);
 
-    // Горизонтальные линии через заданный шаг
+    // Горизонтальные линии
     const gap = 28.0;
     for (double y = gap; y < size.height; y += gap) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
