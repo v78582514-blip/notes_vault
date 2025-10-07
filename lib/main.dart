@@ -298,7 +298,6 @@ class VaultStore extends ChangeNotifier {
     return (g.passwordHash ?? '').trim() == input.trim();
   }
 }
-
 /// =======================
 /// ПРИЛОЖЕНИЕ + ТЕМА
 /// =======================
@@ -525,7 +524,6 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
     final size = MediaQuery.of(context).size;
     final isPortrait =
         MediaQuery.of(context).orientation == Orientation.portrait;
-    // 2 колонки на телефонах/портрете, 3 — на широких
     final cols = (size.width < 700 || isPortrait) ? 2 : 3;
 
     return GridView.builder(
@@ -600,7 +598,6 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
       ),
     );
   }
-
   /// Меню группы
   Future<void> _groupMenu(BuildContext context, Group g) async {
     final action = await _choose(context, [
@@ -833,7 +830,6 @@ String _fmtTime(int ms) {
   String two(int v) => v.toString().padLeft(2, '0');
   return '${two(d.hour)}:${two(d.minute)}  ${two(d.day)}.${two(d.month)}.${d.year}';
 }
-
 /// =======================
 /// КАРТОЧКИ / ТАЙЛЫ
 /// =======================
@@ -1148,7 +1144,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
             decoration: InputDecoration(
               labelText: 'Повторите пароль',
               suffixIcon: IconButton(
-                onPressed: () => setState(() => _ob2 = !_ob2),
+                onPressed: () => setState(() => _ob2 = !_об2),
                 icon: Icon(_ob2 ? Icons.visibility_off : Icons.visibility),
               ),
             ),
@@ -1297,6 +1293,8 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // ВАЖНО: общий скролл для всей «шапки + полей», чтобы можно было
+    // дотянуться до заголовка, даже если курсор внизу большого текста.
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
