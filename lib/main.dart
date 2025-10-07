@@ -1576,8 +1576,99 @@ class _ColorPicker extends StatelessWidget {
 }
 
 class _ColorDot extends StatelessWidget {
-  const _ColorDot(
-      {required this.color, required this.selected, required this.onTap});
+  const _ColorDot({required this.color, required this.selected, required this.onTap});
+  final Color? color;
+  final bool selected;
+  final VoidCallback onTap;
+
+/// =======================
+/// ВЫБОР ЦВЕТА
+/// =======================
+
+class _ColorDialog extends StatefulWidget {
+  const _ColorDialog({this.initial});
+  final Color? initial;
+
+  @override
+  State<_ColorDialog> createState() => _ColorDialogState();
+}
+
+class _ColorDialogState extends State<_ColorDialog> {
+  Color? value;
+
+  @override
+  void initState() {
+    super.initState();
+    value = widget.initial;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Выберите цвет'),
+      content: _ColorPicker(
+        value: value,
+        onChanged: (v) => setState(() => value = v),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, widget.initial),
+          child: const Text('Отмена'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, value),
+          child: const Text('Готово'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ColorPicker extends StatelessWidget {
+  const _ColorPicker({required this.value, required this.onChanged});
+  final Color? value;
+  final ValueChanged<Color?> onChanged;
+
+  static const _palette = [
+    Color(0xFFFF7043),
+    Color(0xFFE57373),
+    Color(0xFFBA68C8),
+    Color(0xFF9575CD),
+    Color(0xFF64B5F6),
+    Color(0xFF4FC3F7),
+    Color(0xFF4DB6AC),
+    Color(0xFF81C784),
+    Color(0xFFAED581),
+    Color(0xFFFFD54F),
+    Color(0xFFFFB74D),
+    Color(0xFFA1887F),
+    Color(0xFF90A4AE),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 10,
+      runSpacing: 10,
+      children: [
+        _ColorDot(
+          color: null,
+          selected: value == null,
+          onTap: () => onChanged(null),
+        ),
+        for (final c in _palette)
+          _ColorDot(
+            color: c,
+            selected: value?.toARGB32() == c.toARGB32(),
+            onTap: () => onChanged(c),
+          ),
+      ],
+    );
+  }
+}
+
+class _ColorDot extends StatelessWidget {
+  const _ColorDot({required this.color, required this.selected, required this.onTap});
   final Color? color;
   final bool selected;
   final VoidCallback onTap;
@@ -1612,12 +1703,10 @@ class _ColorDot extends StatelessWidget {
         decoration: BoxDecoration(
           color: color ?? Colors.transparent,
           shape: BoxShape.circle,
-          border:
-              color == null ? Border.all(color: Colors.grey, width: 1.2) : null,
+          border: color == null ? Border.all(color: Colors.grey, width: 1.2) : null,
         ),
       );
 }
-
 /// =======================
 /// ФОРМАТТЕР НУМЕРАЦИИ
 /// =======================
@@ -1637,8 +1726,7 @@ class _NumberingFormatter extends TextInputFormatter {
     final newText = newValue.text;
 
     // ENTER → добавить "<n>. "
-    final enteredNewLine =
-        newText.length > oldText.length && newText.endsWith('\n');
+    final enteredNewLine = newText.length > oldText.length && newText.endsWith('\n');
     if (enteredNewLine) {
       final cursor = newValue.selection.end;
       final before = newText.substring(0, cursor);
