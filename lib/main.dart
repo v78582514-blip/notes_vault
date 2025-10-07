@@ -1337,16 +1337,16 @@ Widget build(BuildContext context) {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Цвет',
-                  onPressed: () async {
-                    final picked = await showDialog<Color?>(
-                      context: context,
-                      builder: (_) => _ColorDialog(initial: _color),
-                    );
-                    if (picked != null) setState(() => _color = picked);
-                  },
-                  icon: const Icon(Icons.color_lens_outlined),
-                ),
+  tooltip: 'Цвет',
+  onPressed: () async {
+    final picked = await showDialog<Color?>(
+      context: context,
+      builder: (_) => _ColorDialog(initial: _color),
+    );
+    if (picked != null) setState(() => _color = picked);
+  },
+  icon: const Icon(Icons.color_lens_outlined),
+),
               ],
             ),
             const SizedBox(height: 12),
@@ -1354,6 +1354,9 @@ Widget build(BuildContext context) {
             // --- СОДЕРЖИМОЕ (как у тебя было в content:) ---
             TextField(
               controller: _title,
+              inputFormatters: [
+  _NumberingFormatter(() => _numbering),
+],
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
                 labelText: 'Заголовок',
