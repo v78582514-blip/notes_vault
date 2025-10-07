@@ -1,3 +1,4 @@
+// === БЛОК 1/4 === lib/main.dart (начало файла до _GroupTile) ===
 import 'dart:convert';
 import 'dart:ui';
 import 'dart:io';
@@ -366,57 +367,28 @@ class NotesHome extends StatefulWidget {
 }
 
 class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
-  String? _currentGroupId; // выбранная группа (null = «Все» / без группы)
-  String? _dragNoteId; // id перетаскиваемой заметки
-  bool _dragging = false; // показывать ли зону удаления
+  String? _currentGroupId;
+  String _searchQuery = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+  String? _dragNoteId;
+  bool _dragging = false;
 
   VaultStore get store => widget.store;
+
+  // Все заметки (без группы + по всем группам) — для поиска/мерджа
+  List<Note> _allNotes() {
+    final list = <Note>[];
+    list.addAll(store.notesOf(null));
+    for (final g in store.groups) {
+      list.addAll(store.notesOf(g.id));
+    }
+    return list;
+  }
 
   @override
   void initState() {
     super.initState();
     _currentGroupId = null;
-  }
-
-  /// ===== MERGE/ПОИСК — Хелперы (по одному экземпляру каждого!) =====
-
-  // Все заметки (без группы + по всем группам)
-  List<Note> _allNotes() {
-    final list = <Note>[];
-    list.addAll(store.notesOf(null)); // без группы
-    for (final g in store.groups) {
-      list.addAll(store.notesOf(g.id)); // по всем группам
-    }
-    return list;
-  }
-
-  // Найти заметку по id
-  Note? _noteById(String id) {
-    for (final n in _allNotes()) {
-      if (n.id == id) return n;
-    }
-    return null;
-  }
-
-  // Объединить две заметки в новую группу
-  Future<void> _mergeNotesIntoNewGroup(String id1, String id2) async {
-    if (id1 == id2) return;
-
-    final a = _noteById(id1);
-    final b = _noteById(id2);
-    if (a == null || b == null) return;
-
-    final created = await showDialog<Group>(
-      context: context,
-      builder: (_) => const _GroupEditorDialog(),
-    );
-    if (created == null) return;
-
-    await store.upsertGroup(created);
-    await store.upsertNote(a.copyWith(groupId: created.id));
-    await store.upsertNote(b.copyWith(groupId: created.id));
-
-    setState(() => _currentGroupId = created.id);
   }
 
   @override
@@ -525,7 +497,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
         ),
       ],
     );
-  }
+  }// === БЛОК 2/4 === lib/main.dart (от _groupsStrip до _NoteGhostCard) ===
 
   /// Полоса групп (каждая — DragTarget<String>)
   Widget _groupsStrip(BuildContext context, List<Group> groups) {
@@ -577,7 +549,8 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
   /// Сетка заметок: каждая карточка — Drop target + Draggable
   Widget _notesGrid(BuildContext context, List<Note> notes) {
     final size = MediaQuery.of(context).size;
-    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+    final isPortrait =
+        MediaQuery.of(context).orientation == Orientation.portrait;
     final cols = (size.width < 700 || isPortrait) ? 2 : 3;
 
     return GridView.builder(
@@ -591,9 +564,10 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
       itemCount: notes.length,
       itemBuilder: (context, i) {
         final n = notes[i];
-        final c = n.color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
+        final c =
+            n.color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
 
-        // Ячейка умеет принимать дроп другой заметки (для объединения в новую группу)
+        // Ячейка принимает drop другой заметки (чтобы объединить их в новую группу)
         return DragTarget<String>(
           onWillAcceptWithDetails: (details) => details.data != n.id,
           onAcceptWithDetails: (details) async {
@@ -627,7 +601,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
                   ),
                 ),
 
-                // Подсветка цели, когда над карточкой держат другую
+                // Подсветка, когда над карточкой держат другую
                 if (isHover)
                   Positioned.fill(
                     child: IgnorePointer(
@@ -648,6 +622,35 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
         );
       },
     );
+  }
+
+  /// Найти заметку по id
+  Note? _noteById(String id) {
+    for (final n in _allNotes()) {
+      if (n.id == id) return n;
+    }
+    return null;
+  }
+
+  /// Объединить две заметки в новую группу (через диалог группы)
+  Future<void> _mergeNotesIntoNewGroup(String id1, String id2) async {
+    if (id1 == id2) return;
+
+    final a = _noteById(id1);
+    final b = _noteById(id2);
+    if (a == null || b == null) return;
+
+    final created = await showDialog<Group>(
+      context: context,
+      builder: (_) => const _GroupEditorDialog(),
+    );
+    if (created == null) return;
+
+    await store.upsertGroup(created);
+    await store.upsertNote(a.copyWith(groupId: created.id));
+    await store.upsertNote(b.copyWith(groupId: created.id));
+
+    setState(() => _currentGroupId = created.id);
   }
 
   /// Зона удаления (DragTarget снизу)
@@ -857,61 +860,8 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
       .replaceAll('&', '&amp;')
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;');
-
-  Future<void> _shareNote(BuildContext context, Note n) async {
-    final choice = await _choose(context, [
-      'Как текст',
-      'Как Markdown (.md)',
-      'Как HTML (.html)',
-    ]);
-    if (choice == null) return;
-
-    try {
-      switch (choice) {
-        case 'Как текст':
-          await Share.share(
-            _fmtNoteAsPlain(n),
-            subject: n.title.isEmpty ? 'Заметка' : n.title,
-          );
-          break;
-
-        case 'Как Markdown (.md)':
-          {
-            final dir = await getTemporaryDirectory();
-            final file = File('${dir.path}/note_${n.id}.md');
-            await file.writeAsString(_fmtNoteAsMarkdown(n), encoding: utf8);
-            await Share.shareXFiles(
-              [XFile(file.path, mimeType: 'text/markdown')],
-              subject: n.title.isEmpty ? 'Заметка' : n.title,
-              text: 'См. прикрепленный файл Markdown',
-            );
-          }
-          break;
-
-        case 'Как HTML (.html)':
-          {
-            final dir = await getTemporaryDirectory();
-            final file = File('${dir.path}/note_${n.id}.html');
-            await file.writeAsString(_fmtNoteAsHtml(n), encoding: utf8);
-            await Share.shareXFiles(
-              [XFile(file.path, mimeType: 'text/html')],
-              subject: n.title.isEmpty ? 'Заметка' : n.title,
-              text: 'См. прикрепленный HTML-файл',
-            );
-          }
-          break;
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не удалось поделиться: $e')),
-        );
-      }
-    }
-  }
 }
 
-/// Вспомогательное форматирование времени
 String _fmtTime(int ms) {
   final d = DateTime.fromMillisecondsSinceEpoch(ms);
   String two(int v) => v.toString().padLeft(2, '0');
@@ -1028,7 +978,6 @@ class _NoteCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Верхняя цветная полоска
               Container(
                 height: 4,
                 decoration: BoxDecoration(
@@ -1037,7 +986,6 @@ class _NoteCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 8),
-              // Заголовок
               Text(
                 note.title.isEmpty ? 'Без заголовка' : note.title,
                 maxLines: 1,
@@ -1045,7 +993,6 @@ class _NoteCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 6),
-              // Текст
               Expanded(
                 child: Text(
                   note.text,
@@ -1055,7 +1002,6 @@ class _NoteCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 6),
-              // Нижняя строка
               Row(
                 children: [
                   const Icon(Icons.access_time, size: 14),
@@ -1124,7 +1070,7 @@ class _NoteGhostCard extends StatelessWidget {
       ),
     );
   }
-}
+}// === БЛОК 3/4 === lib/main.dart (поиск + диалоги до _GroupEditorDialog) ===
 
 /// =======================
 /// ПОИСК ЗАМЕТОК
@@ -1289,7 +1235,7 @@ class _PasswordEditorDialog extends StatefulWidget {
 class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
   final _p1 = TextEditingController();
   final _p2 = TextEditingController();
-  bool _ob1 = true, _ob2 = true;
+  bool _ob1 = true, _ob2 = true; // <— латиница: o-b-1 / o-b-2
 
   @override
   Widget build(BuildContext context) {
@@ -1316,7 +1262,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
             decoration: InputDecoration(
               labelText: 'Повторите пароль',
               suffixIcon: IconButton(
-                onPressed: () => setState(() => _ob2 = !_об2),
+                onPressed: () => setState(() => _ob2 = !_ob2),
                 icon: Icon(_ob2 ? Icons.visibility_off : Icons.visibility),
               ),
             ),
@@ -1344,7 +1290,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
       ],
     );
   }
-}
+}// === БЛОК 4/4 === lib/main.dart (редакторы + выбор цвета + нумерация) ===
 
 class _GroupEditorDialog extends StatefulWidget {
   const _GroupEditorDialog({this.group});
@@ -1465,7 +1411,6 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
-    // Общий скролл: «шапка + поля» скроллятся вместе
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -1528,8 +1473,9 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: FilterChip(
-                      label: Text(
-                          _groupId == null ? 'Без группы' : 'Сбросить группу'),
+                      label: Text(_groupId == null
+                          ? 'Без группы'
+                          : 'Сбросить группу'),
                       selected: _groupId == null,
                       onSelected: (_) => setState(() => _groupId = null),
                     ),
@@ -1791,4 +1737,3 @@ class _NumberingFormatter extends TextInputFormatter {
     return newValue;
   }
 }
-```0
