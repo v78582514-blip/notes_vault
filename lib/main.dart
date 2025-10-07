@@ -327,11 +327,7 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
         seedColor: const Color(0xFF3F51B5),
         brightness: Brightness.light,
       ),
-      // было (ломает сборку на 3.35.5):
-// cardTheme: const CardTheme(margin: EdgeInsets.all(8)),
-
-// нужно:
-cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
+      cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
     );
 
     final dark = ThemeData(
@@ -340,11 +336,7 @@ cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
         seedColor: const Color(0xFF7986CB),
         brightness: Brightness.dark,
       ),
-      // было (ломает сборку на 3.35.5):
-// cardTheme: const CardTheme(margin: EdgeInsets.all(8)),
-
-// нужно:
-cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
+      cardTheme: const CardThemeData(margin: EdgeInsets.all(8)),
     );
 
     return AnimatedBuilder(
@@ -375,25 +367,56 @@ class NotesHome extends StatefulWidget {
 
 class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
   String? _currentGroupId; // выбранная группа (null = «Все» / без группы)
-  String _searchQuery = '';
-final TextEditingController _searchCtrl = TextEditingController();
   String? _dragNoteId; // id перетаскиваемой заметки
   bool _dragging = false; // показывать ли зону удаления
 
   VaultStore get store => widget.store;
-  List<Note> _allNotes() {
-  final list = <Note>[];
-  list.addAll(store.notesOf(null)); // без группы
-  for (final g in store.groups) {
-    list.addAll(store.notesOf(g.id)); // по всем группам
-  }
-  return list;
-}
 
   @override
   void initState() {
     super.initState();
     _currentGroupId = null;
+  }
+
+  /// ===== MERGE/ПОИСК — Хелперы (по одному экземпляру каждого!) =====
+
+  // Все заметки (без группы + по всем группам)
+  List<Note> _allNotes() {
+    final list = <Note>[];
+    list.addAll(store.notesOf(null)); // без группы
+    for (final g in store.groups) {
+      list.addAll(store.notesOf(g.id)); // по всем группам
+    }
+    return list;
+  }
+
+  // Найти заметку по id
+  Note? _noteById(String id) {
+    for (final n in _allNotes()) {
+      if (n.id == id) return n;
+    }
+    return null;
+  }
+
+  // Объединить две заметки в новую группу
+  Future<void> _mergeNotesIntoNewGroup(String id1, String id2) async {
+    if (id1 == id2) return;
+
+    final a = _noteById(id1);
+    final b = _noteById(id2);
+    if (a == null || b == null) return;
+
+    final created = await showDialog<Group>(
+      context: context,
+      builder: (_) => const _GroupEditorDialog(),
+    );
+    if (created == null) return;
+
+    await store.upsertGroup(created);
+    await store.upsertNote(a.copyWith(groupId: created.id));
+    await store.upsertNote(b.copyWith(groupId: created.id));
+
+    setState(() => _currentGroupId = created.id);
   }
 
   @override
@@ -413,19 +436,18 @@ final TextEditingController _searchCtrl = TextEditingController();
             ),
             actions: [
               IconButton(
-  tooltip: 'Поиск',
-  onPressed: () async {
-    final picked = await showSearch<Note?>(
-      context: context,
-      delegate: _NotesSearchDelegate(
-        notes: _allNotes(),             // все заметки
-        onOpen: (n) => _editNote(context, n), // что делать при выборе
-      ),
-    );
-    // picked можно не использовать — onOpen уже откроет заметку
-  },
-  icon: const Icon(Icons.search),
-),
+                tooltip: 'Поиск',
+                onPressed: () async {
+                  await showSearch<Note?>(
+                    context: context,
+                    delegate: _NotesSearchDelegate(
+                      notes: _allNotes(),
+                      onOpen: (n) => _editNote(context, n),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.search),
+              ),
               IconButton(
                 tooltip: 'Сменить тему',
                 onPressed: () {
@@ -553,160 +575,83 @@ final TextEditingController _searchCtrl = TextEditingController();
   }
 
   /// Сетка заметок: каждая карточка — Drop target + Draggable
-Widget _notesGrid(BuildContext context, List<Note> notes)
-// Найти заметку по id
-Note? _noteById(String id) {
-  for (final n in _allNotes()) {
-    if (n.id == id) return n;
-  }
-  return null;
-}
+  Widget _notesGrid(BuildContext context, List<Note> notes) {
+    final size = MediaQuery.of(context).size;
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+    final cols = (size.width < 700 || isPortrait) ? 2 : 3;
 
-// Объединить две заметки в новую группу
-Future<void> _mergeNotesIntoNewGroup(String id1, String id2) async {
-  if (id1 == id2) return;
+    return GridView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: cols,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 14,
+        childAspectRatio: 1.32,
+      ),
+      itemCount: notes.length,
+      itemBuilder: (context, i) {
+        final n = notes[i];
+        final c = n.color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
 
-  final a = _noteById(id1);
-  final b = _noteById(id2);
-  if (a == null || b == null) return;
+        // Ячейка умеет принимать дроп другой заметки (для объединения в новую группу)
+        return DragTarget<String>(
+          onWillAcceptWithDetails: (details) => details.data != n.id,
+          onAcceptWithDetails: (details) async {
+            await _mergeNotesIntoNewGroup(details.data, n.id);
+            _dragNoteId = null;
+            setState(() => _dragging = false);
+          },
+          builder: (context, candidate, rejected) {
+            final isHover = candidate.isNotEmpty;
 
-  // Попросим пользователя задать новое имя/цвет группы
-  final created = await showDialog<Group>(
-    context: context,
-    builder: (_) => const _GroupEditorDialog(),
-  );
-  if (created == null) return;
-
-  // Сохраняем группу и переносим обе заметки в неё
-  await store.upsertGroup(created);
-  await store.upsertNote(a.copyWith(groupId: created.id));
-  await store.upsertNote(b.copyWith(groupId: created.id));
-
-  // Сразу покажем новую группу
-  setState(() => _currentGroupId = created.id);
-}
-  {
-  final size = MediaQuery.of(context).size;
-  final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
-  // 2 колонки на телефонах/портрете, 3 — на широких
-  final cols = (size.width < 700 || isPortrait) ? 2 : 3;
-
-  return GridView.builder(
-    padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
-    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-      crossAxisCount: cols,
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 14,
-      childAspectRatio: 1.32,
-    ),
-    itemCount: notes.length,
-    itemBuilder: (context, i) {
-      final n = notes[i];
-      final c = n.color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
-
-      // Ячейка умеет принимать дроп другой заметки (для объединения в новую группу)
-      return DragTarget<String>(
-        onWillAcceptWithDetails: (details) => details.data != n.id, // на себя не бросаем
-        onAcceptWithDetails: (details) async {
-          await _mergeNotesIntoNewGroup(details.data, n.id);
-          _dragNoteId = null;
-          setState(() => _dragging = false);
-        },
-        builder: (context, candidate, rejected) {
-          final isHover = candidate.isNotEmpty;
-
-          return Stack(
-            children: [
-              LongPressDraggable<String>(
-                data: n.id,
-                dragAnchorStrategy: childDragAnchorStrategy,
-                onDragStarted: () {
-                  _dragNoteId = n.id;
-                  setState(() => _dragging = true);
-                },
-                onDragEnd: (_) {
-                  _dragNoteId = null;
-                  setState(() => _dragging = false);
-                },
-                feedback: _NoteGhostCard(color: c),
-                childWhenDragging: const _NoteGhostCard(),
-                child: _NoteCard(
-                  note: n,
-                  onTap: () => _editNote(context, n),
-                  onDelete: () => _confirmDeleteNote(context, n),
-                  onShare: () => _shareNote(context, n),
+            return Stack(
+              children: [
+                LongPressDraggable<String>(
+                  data: n.id,
+                  dragAnchorStrategy: childDragAnchorStrategy,
+                  onDragStarted: () {
+                    _dragNoteId = n.id;
+                    setState(() => _dragging = true);
+                  },
+                  onDragEnd: (_) {
+                    _dragNoteId = null;
+                    setState(() => _dragging = false);
+                  },
+                  feedback: _NoteGhostCard(color: c),
+                  childWhenDragging: const _NoteGhostCard(),
+                  child: _NoteCard(
+                    note: n,
+                    onTap: () => _editNote(context, n),
+                    onDelete: () => _confirmDeleteNote(context, n),
+                    onShare: () => _shareNote(context, n),
+                  ),
                 ),
-              ),
 
-              // Подсветка дропа, когда над карточкой держат другую
-              if (isHover)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.primary,
-                          width: 2.5,
+                // Подсветка цели, когда над карточкой держат другую
+                if (isHover)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.primary,
+                            width: 2.5,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-            ],
-          );
-        },
-      );
-    },
-  );
-}
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 
   /// Зона удаления (DragTarget снизу)
-  Widget _deleteDropZone(BuildContext context)
-  // ---- MERGE: вспомогательные методы ----
-
-// Все заметки (без группы + по всем группам)
-List<Note> _allNotes() {
-  final list = <Note>[];
-  list.addAll(store.notesOf(null));          // без группы
-  for (final g in store.groups) {
-    list.addAll(store.notesOf(g.id));        // по всем группам
-  }
-  return list;
-}
-
-// Найти заметку по id
-Note? _noteById(String id) {
-  for (final n in _allNotes()) {
-    if (n.id == id) return n;
-  }
-  return null;
-}
-
-// Объединить две заметки в новую группу
-Future<void> _mergeNotesIntoNewGroup(String id1, String id2) async {
-  if (id1 == id2) return; // на себя не реагируем
-
-  final a = _noteById(id1);
-  final b = _noteById(id2);
-  if (a == null || b == null) return;
-
-  // Предлагаем создать группу (используем уже готовый редактор группы)
-  final created = await showDialog<Group>(
-    context: context,
-    builder: (_) => _GroupEditorDialog(group: null),
-  );
-  if (created == null) return;
-
-  // Сохраняем группу и переносим обе заметки
-  await store.upsertGroup(created);
-  await store.upsertNote(a.copyWith(groupId: created.id));
-  await store.upsertNote(b.copyWith(groupId: created.id));
-
-  // Переключимся в эту группу (удобно сразу увидеть результат)
-  setState(() => _currentGroupId = created.id);
-}
-  {
+  Widget _deleteDropZone(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Align(
       alignment: Alignment.bottomCenter,
@@ -1180,6 +1125,7 @@ class _NoteGhostCard extends StatelessWidget {
     );
   }
 }
+
 /// =======================
 /// ПОИСК ЗАМЕТОК
 /// =======================
@@ -1193,7 +1139,6 @@ class _NotesSearchDelegate extends SearchDelegate<Note?> {
   final List<Note> notes;
   final void Function(Note) onOpen;
 
-  // Кнопка очистки справа
   @override
   List<Widget>? buildActions(BuildContext context) => [
         if (query.isNotEmpty)
@@ -1203,21 +1148,18 @@ class _NotesSearchDelegate extends SearchDelegate<Note?> {
           ),
       ];
 
-  // Кнопка "Назад"
   @override
   Widget? buildLeading(BuildContext context) => IconButton(
         icon: const Icon(Icons.arrow_back),
         onPressed: () => close(context, null),
       );
 
-  // Основной экран результатов
   @override
   Widget buildResults(BuildContext context) {
     final items = _filtered();
     return _list(context, items);
   }
 
-  // Обновление списка при вводе
   @override
   Widget buildSuggestions(BuildContext context) {
     final items = _filtered();
@@ -1259,7 +1201,7 @@ class _NotesSearchDelegate extends SearchDelegate<Note?> {
             style: Theme.of(context).textTheme.bodySmall,
           ),
           onTap: () {
-            onOpen(n); // открыть заметку
+            onOpen(n);
             close(context, n);
           },
         );
@@ -1374,7 +1316,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
             decoration: InputDecoration(
               labelText: 'Повторите пароль',
               suffixIcon: IconButton(
-                onPressed: () => setState(() => _ob2 = !_ob2),
+                onPressed: () => setState(() => _ob2 = !_об2),
                 icon: Icon(_ob2 ? Icons.visibility_off : Icons.visibility),
               ),
             ),
@@ -1523,7 +1465,7 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
-    // Общий скролл: «шапка + поля» скроллятся вместе, чтобы всегда можно было дотянуться до заголовка.
+    // Общий скролл: «шапка + поля» скроллятся вместе
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -1539,7 +1481,6 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Заголовок и действия — внутри общего скролла
                   Row(
                     children: [
                       Expanded(
@@ -1587,9 +1528,8 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: FilterChip(
-                      label: Text(_groupId == null
-                          ? 'Без группы'
-                          : 'Сбросить группу'),
+                      label: Text(
+                          _groupId == null ? 'Без группы' : 'Сбросить группу'),
                       selected: _groupId == null,
                       onSelected: (_) => setState(() => _groupId = null),
                     ),
@@ -1851,3 +1791,4 @@ class _NumberingFormatter extends TextInputFormatter {
     return newValue;
   }
 }
+```0
