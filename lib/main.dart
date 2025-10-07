@@ -860,6 +860,58 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
       .replaceAll('&', '&amp;')
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;');
+
+  Future<void> _shareNote(BuildContext context, Note n) async {
+    final choice = await _choose(context, [
+      'Как текст',
+      'Как Markdown (.md)',
+      'Как HTML (.html)',
+    ]);
+    if (choice == null) return;
+
+    try {
+      switch (choice) {
+        case 'Как текст':
+          await Share.share(
+            _fmtNoteAsPlain(n),
+            subject: n.title.isEmpty ? 'Заметка' : n.title,
+          );
+          break;
+
+        case 'Как Markdown (.md)':
+          {
+            final dir = await getTemporaryDirectory();
+            final file = File('${dir.path}/note_${n.id}.md');
+            await file.writeAsString(_fmtNoteAsMarkdown(n), encoding: utf8);
+            await Share.shareXFiles(
+              [XFile(file.path, mimeType: 'text/markdown')],
+              subject: n.title.isEmpty ? 'Заметка' : n.title,
+              text: 'См. прикрепленный файл Markdown',
+            );
+          }
+          break;
+
+        case 'Как HTML (.html)':
+          {
+            final dir = await getTemporaryDirectory();
+            final file = File('${dir.path}/note_${n.id}.html');
+            await file.writeAsString(_fmtNoteAsHtml(n), encoding: utf8);
+            await Share.shareXFiles(
+              [XFile(file.path, mimeType: 'text/html')],
+              subject: n.title.isEmpty ? 'Заметка' : n.title,
+              text: 'См. прикрепленный HTML-файл',
+            );
+          }
+          break;
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось поделиться: $e')),
+        );
+      }
+    }
+  }
 }
 
 String _fmtTime(int ms) {
