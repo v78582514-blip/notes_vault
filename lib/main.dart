@@ -552,82 +552,114 @@ final TextEditingController _searchCtrl = TextEditingController();
     );
   }
 
-  /// Сетка заметок (каждая — Draggable<String>)
-  Widget _notesGrid(BuildContext context, List<Note> notes) {
-    final size = MediaQuery.of(context).size;
-    final isPortrait =
-        MediaQuery.of(context).orientation == Orientation.portrait;
-    // 2 колонки на телефонах/портрете, 3 — на широких
-    final cols = (size.width < 700 || isPortrait) ? 2 : 3;
+  /// Сетка заметок: каждая карточка — Drop target + Draggable
+Widget _notesGrid(BuildContext context, List<Note> notes)
+// Найти заметку по id
+Note? _noteById(String id) {
+  for (final n in _allNotes()) {
+    if (n.id == id) return n;
+  }
+  return null;
+}
 
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: cols,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 14,
-        childAspectRatio: 1.32,
-      ),
-      itemCount: notes.length,
-      itemBuilder: (context, i) {
-        final n = notes[i];
-        final c =
-            n.color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
+// Объединить две заметки в новую группу
+Future<void> _mergeNotesIntoNewGroup(String id1, String id2) async {
+  if (id1 == id2) return;
 
-        return LongPressDraggable<String>(
-        return DragTarget<String>(
-  onWillAcceptWithDetails: (details) => details.data != n.id, // себя не принимаем
-  onAcceptWithDetails: (details) async {
-    // Бросили заметку (details.data) на текущую (n.id)
-    await _mergeNotesIntoNewGroup(details.data, n.id);
-    _dragNoteId = null;
-    setState(() => _dragging = false);
-  },
-  builder: (context, candidate, rejected) {
-    final isHover = candidate.isNotEmpty; // есть перетаскиваемый над этой карточкой
+  final a = _noteById(id1);
+  final b = _noteById(id2);
+  if (a == null || b == null) return;
 
-    return Stack(
-      children: [
-        LongPressDraggable<String>(
-          data: n.id,
-          dragAnchorStrategy: childDragAnchorStrategy,
-          onDragStarted: () {
-            _dragNoteId = n.id;
-            setState(() => _dragging = true);
-          },
-          onDragEnd: (_) {
-            _dragNoteId = null;
-            setState(() => _dragging = false);
-          },
-          feedback: _NoteGhostCard(color: c),
-          childWhenDragging: const _NoteGhostCard(),
-          child: _NoteCard(
-            note: n,
-            onTap: () => _editNote(context, n),
-            onDelete: () => _confirmDeleteNote(context, n),
-            onShare: () => _shareNote(context, n),
-          ),
-        ),
+  // Попросим пользователя задать новое имя/цвет группы
+  final created = await showDialog<Group>(
+    context: context,
+    builder: (_) => const _GroupEditorDialog(),
+  );
+  if (created == null) return;
 
-        // Подсветка цели, когда над карточкой держат другую
-        if (isHover)
-          Positioned.fill(
-            child: IgnorePointer(
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.primary,
-                    width: 2.5,
-                  ),
+  // Сохраняем группу и переносим обе заметки в неё
+  await store.upsertGroup(created);
+  await store.upsertNote(a.copyWith(groupId: created.id));
+  await store.upsertNote(b.copyWith(groupId: created.id));
+
+  // Сразу покажем новую группу
+  setState(() => _currentGroupId = created.id);
+}
+  {
+  final size = MediaQuery.of(context).size;
+  final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+  // 2 колонки на телефонах/портрете, 3 — на широких
+  final cols = (size.width < 700 || isPortrait) ? 2 : 3;
+
+  return GridView.builder(
+    padding: const EdgeInsets.fromLTRB(12, 0, 12, 100),
+    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: cols,
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 14,
+      childAspectRatio: 1.32,
+    ),
+    itemCount: notes.length,
+    itemBuilder: (context, i) {
+      final n = notes[i];
+      final c = n.color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
+
+      // Ячейка умеет принимать дроп другой заметки (для объединения в новую группу)
+      return DragTarget<String>(
+        onWillAcceptWithDetails: (details) => details.data != n.id, // на себя не бросаем
+        onAcceptWithDetails: (details) async {
+          await _mergeNotesIntoNewGroup(details.data, n.id);
+          _dragNoteId = null;
+          setState(() => _dragging = false);
+        },
+        builder: (context, candidate, rejected) {
+          final isHover = candidate.isNotEmpty;
+
+          return Stack(
+            children: [
+              LongPressDraggable<String>(
+                data: n.id,
+                dragAnchorStrategy: childDragAnchorStrategy,
+                onDragStarted: () {
+                  _dragNoteId = n.id;
+                  setState(() => _dragging = true);
+                },
+                onDragEnd: (_) {
+                  _dragNoteId = null;
+                  setState(() => _dragging = false);
+                },
+                feedback: _NoteGhostCard(color: c),
+                childWhenDragging: const _NoteGhostCard(),
+                child: _NoteCard(
+                  note: n,
+                  onTap: () => _editNote(context, n),
+                  onDelete: () => _confirmDeleteNote(context, n),
+                  onShare: () => _shareNote(context, n),
                 ),
               ),
-            ),
-          ),
-      ],
-    );
-  },
-);
+
+              // Подсветка дропа, когда над карточкой держат другую
+              if (isHover)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.primary,
+                          width: 2.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
 
   /// Зона удаления (DragTarget снизу)
   Widget _deleteDropZone(BuildContext context)
