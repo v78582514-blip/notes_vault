@@ -352,6 +352,7 @@ class _NotesVaultAppState extends State<NotesVaultApp> {
     );
   }
 }
+
 /// =======================
 /// ГЛАВНЫЙ ЭКРАН
 /// =======================
@@ -524,6 +525,7 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
     final size = MediaQuery.of(context).size;
     final isPortrait =
         MediaQuery.of(context).orientation == Orientation.portrait;
+    // 2 колонки на телефонах/портрете, 3 — на широких
     final cols = (size.width < 700 || isPortrait) ? 2 : 3;
 
     return GridView.builder(
@@ -537,8 +539,8 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
       itemCount: notes.length,
       itemBuilder: (context, i) {
         final n = notes[i];
-        final c = n.color ??
-            Theme.of(context).colorScheme.surfaceContainerHighest;
+        final c =
+            n.color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
 
         return LongPressDraggable<String>(
           data: n.id,
@@ -664,7 +666,6 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
   Future<void> _editNote(BuildContext context, [Note? original]) async {
     final updated = await showDialog<Note>(
       context: context,
-      barrierDismissible: false,
       builder: (_) => _NoteEditorDialog(
         note: original,
         defaultGroupId: _currentGroupId,
@@ -817,10 +818,11 @@ class _NotesHomeState extends State<NotesHome> with TickerProviderStateMixin {
           break;
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Не удалось поделиться: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось поделиться: $e')),
+        );
+      }
     }
   }
 }
@@ -831,6 +833,7 @@ String _fmtTime(int ms) {
   String two(int v) => v.toString().padLeft(2, '0');
   return '${two(d.hour)}:${two(d.minute)}  ${two(d.day)}.${two(d.month)}.${d.year}';
 }
+
 /// =======================
 /// КАРТОЧКИ / ТАЙЛЫ
 /// =======================
@@ -1145,7 +1148,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
             decoration: InputDecoration(
               labelText: 'Повторите пароль',
               suffixIcon: IconButton(
-                onPressed: () => setState(() => _ob2 = !_об2),
+                onPressed: () => setState(() => _ob2 = !_ob2),
                 icon: Icon(_ob2 ? Icons.visibility_off : Icons.visibility),
               ),
             ),
@@ -1174,6 +1177,7 @@ class _PasswordEditorDialogState extends State<_PasswordEditorDialog> {
     );
   }
 }
+
 class _GroupEditorDialog extends StatefulWidget {
   const _GroupEditorDialog({this.group});
   final Group? group;
@@ -1249,7 +1253,6 @@ class _NoteEditorDialog extends StatefulWidget {
   State<_NoteEditorDialog> createState() => _NoteEditorDialogState();
 }
 
-/// Важно: единый скролл для всей «шапки + полей», чтобы можно было доскроллить до AppBar.
 class _NoteEditorDialogState extends State<_NoteEditorDialog> {
   late final TextEditingController _title;
   late final TextEditingController _body;
@@ -1271,7 +1274,6 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
   void _toggleNumbering() {
     setState(() => _numbering = !_numbering);
 
-    // Если включили нумерацию и курсор в пустой строке — вставим "1. "
     if (_numbering) {
       final v = _body.value;
       final text = v.text;
@@ -1310,12 +1312,14 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Заголовок и кнопки действий (внутри общего скролла!)
+                  // Заголовок и кнопки действий — часть общего скролла
                   Row(
                     children: [
                       Expanded(
                         child: Text(
-                          widget.note == null ? 'Новая заметка' : 'Редактирование',
+                          widget.note == null
+                              ? 'Новая заметка'
+                              : 'Редактирование',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                       ),
@@ -1328,9 +1332,7 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
                           Icons.format_list_numbered,
                           color: _numbering
                               ? Theme.of(context).colorScheme.primary
-                              : Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                       IconButton(
@@ -1512,7 +1514,11 @@ class _ColorPicker extends StatelessWidget {
 }
 
 class _ColorDot extends StatelessWidget {
-  const _ColorDot({required this.color, required this.selected, required this.onTap});
+  const _ColorDot({
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
   final Color? color;
   final bool selected;
   final VoidCallback onTap;
