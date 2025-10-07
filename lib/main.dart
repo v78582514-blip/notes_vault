@@ -575,6 +575,20 @@ final TextEditingController _searchCtrl = TextEditingController();
             n.color ?? Theme.of(context).colorScheme.surfaceContainerHighest;
 
         return LongPressDraggable<String>(
+        return DragTarget<String>(
+  onWillAcceptWithDetails: (details) => details.data != n.id, // себя не принимаем
+  onAcceptWithDetails: (details) async {
+    // Бросили заметку (details.data) на текущую (n.id)
+    await _mergeNotesIntoNewGroup(details.data, n.id);
+    _dragNoteId = null;
+    setState(() => _dragging = false);
+  },
+  builder: (context, candidate, rejected) {
+    final isHover = candidate.isNotEmpty; // есть перетаскиваемый над этой карточкой
+
+    return Stack(
+      children: [
+        LongPressDraggable<String>(
           data: n.id,
           dragAnchorStrategy: childDragAnchorStrategy,
           onDragStarted: () {
@@ -593,13 +607,74 @@ final TextEditingController _searchCtrl = TextEditingController();
             onDelete: () => _confirmDeleteNote(context, n),
             onShare: () => _shareNote(context, n),
           ),
-        );
-      },
+        ),
+
+        // Подсветка цели, когда над карточкой держат другую
+        if (isHover)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.primary,
+                    width: 2.5,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
-  }
+  },
+);
 
   /// Зона удаления (DragTarget снизу)
-  Widget _deleteDropZone(BuildContext context) {
+  Widget _deleteDropZone(BuildContext context)
+  // ---- MERGE: вспомогательные методы ----
+
+// Все заметки (без группы + по всем группам)
+List<Note> _allNotes() {
+  final list = <Note>[];
+  list.addAll(store.notesOf(null));          // без группы
+  for (final g in store.groups) {
+    list.addAll(store.notesOf(g.id));        // по всем группам
+  }
+  return list;
+}
+
+// Найти заметку по id
+Note? _noteById(String id) {
+  for (final n in _allNotes()) {
+    if (n.id == id) return n;
+  }
+  return null;
+}
+
+// Объединить две заметки в новую группу
+Future<void> _mergeNotesIntoNewGroup(String id1, String id2) async {
+  if (id1 == id2) return; // на себя не реагируем
+
+  final a = _noteById(id1);
+  final b = _noteById(id2);
+  if (a == null || b == null) return;
+
+  // Предлагаем создать группу (используем уже готовый редактор группы)
+  final created = await showDialog<Group>(
+    context: context,
+    builder: (_) => _GroupEditorDialog(group: null),
+  );
+  if (created == null) return;
+
+  // Сохраняем группу и переносим обе заметки
+  await store.upsertGroup(created);
+  await store.upsertNote(a.copyWith(groupId: created.id));
+  await store.upsertNote(b.copyWith(groupId: created.id));
+
+  // Переключимся в эту группу (удобно сразу увидеть результат)
+  setState(() => _currentGroupId = created.id);
+}
+  {
     final scheme = Theme.of(context).colorScheme;
     return Align(
       alignment: Alignment.bottomCenter,
