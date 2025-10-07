@@ -137,6 +137,45 @@ extension _ColorToArgb on Color {
 /// =======================
 
 class VaultStore extends ChangeNotifier {
+  class VaultStore extends ChangeNotifier {
+  static const _kGroups = 'groups_v1';
+  static const _kNotes = 'notes_v1';
+  static const _kTheme = 'theme_v1'; // light/dark/system
+
+  // === 🔒 ХЭШИРОВАНИЕ ПАРОЛЕЙ ===
+  import 'dart:convert';
+  import 'package:crypto/crypto.dart';
+  import 'dart:math';
+
+  /// Хэширует пароль с солью
+  String hashPassword(String password) {
+    final salt = _generateSalt(8);
+    final bytes = utf8.encode(salt + password);
+    final digest = sha256.convert(bytes);
+    return '$salt\$${digest.toString()}';
+  }
+
+  /// Проверяет пароль, сверяя с хэшем
+  bool verifyPassword(String password, String storedHash) {
+    final parts = storedHash.split('\$');
+    if (parts.length != 2) return false;
+    final salt = parts[0];
+    final hash = parts[1];
+    final digest = sha256.convert(utf8.encode(salt + password));
+    return digest.toString() == hash;
+  }
+
+  /// Генерация случайной соли
+  String _generateSalt(int length) {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rand = Random.secure();
+    return List.generate(length, (_) => chars[rand.nextInt(chars.length)]).join();
+  }
+
+  // === ДАННЫЕ ===
+  final List<Group> _groups = [];
+  final List<Note> _notes = [];
+  ThemeMode themeMode = ThemeMode.system;
   static const _kGroups = 'groups_v1';
   static const _kNotes = 'notes_v1';
   static const _kTheme = 'theme_v1'; // 'light' | 'dark' | 'system'
